@@ -1,0 +1,169 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<section id="el-wall" aria-label="耐力调教计时墙">
+  <header class="wall-top">
+    <div><p class="wall-eyebrow">ENDURANCE LAB / PIT WALL</p><h2>调校计时墙</h2></div>
+    <div class="wall-context"><b id="el-wall-car"></b><span id="el-wall-context"></span></div>
+  </header>
+
+  <div class="wall-bar">
+    <span id="el-wall-change"></span>
+    <div class="wall-switch" aria-label="圈速比较方式">
+      <button type="button" data-mode="ref" aria-pressed="true">完整参考圈</button>
+      <button type="button" data-mode="best" aria-pressed="false">理论最佳圈</button>
+    </div>
+  </div>
+
+  <div class="wall-timing">
+    <div class="wall-scroll">
+      <div id="el-wall-board">
+        <table aria-label="调整前后整圈和分段计时">
+          <thead id="el-wall-columns"></thead>
+          <tbody id="el-wall-times"></tbody>
+        </table>
+        <div class="wall-strip" id="el-wall-strip" aria-label="选择赛段"></div>
+      </div>
+    </div>
+    <div class="wall-strip-key"><span><i class="wall-key wall-peak"></i> 全场最快</span><span><i class="wall-key wall-gain"></i> 个人最佳</span><span><i class="wall-key wall-loss"></i> 未刷新</span><span><i class="wall-key"></i> 无排名</span></div>
+  </div>
+
+  <div class="wall-desk">
+    <aside class="wall-index">
+      <div class="wall-panel-head"><h3 id="el-wall-list-title"></h3><span id="el-wall-sector-pair"></span></div>
+      <div id="el-wall-turns" aria-label="选择弯道"></div>
+      <p id="el-wall-basis" class="wall-basis"></p>
+    </aside>
+
+    <div class="wall-channel">
+      <div class="wall-panel-head"><div><h3 id="el-wall-detail-title"></h3><span id="el-wall-detail-note"></span></div><strong id="el-wall-corner-delta" class="wall-num"></strong></div>
+      <div class="wall-metrics" id="el-wall-metrics"></div>
+      <div class="wall-plot-head"><span><i class="wall-a-line"></i> A 调整前</span><span><i class="wall-b-line"></i> B 调整后</span></div>
+      <svg id="el-wall-chart" role="img" aria-label="按距离对齐的速度、刹车和油门曲线"></svg>
+      <div class="wall-scrub">
+        <label for="el-wall-cursor">对齐距离</label>
+        <input id="el-wall-cursor" type="range" min="0" max="0" step="1" value="0">
+        <output id="el-wall-at" for="el-wall-cursor">0 m</output>
+      </div>
+      <div id="el-wall-sample" class="wall-sample"></div>
+    </div>
+  </div>
+</section>
+
+<style>
+#el-wall {
+  color-scheme: dark; --wall-bg: #111319; --wall-pane: #191d26; --wall-header:#141720; --wall-rule: #343b4a;
+  --wall-text: #eff3fa; --wall-muted: #abb6c8; --wall-a: #a5b9d4; --wall-b: #55e2ec;
+  --wall-fast: #66e2ab; --wall-best: #db9aff; --wall-slow: #ffce79;
+  color:var(--wall-text); background:var(--wall-bg); border:1px solid var(--wall-rule);
+  border-radius:8px; overflow:hidden; font:14px/1.43 system-ui,"Microsoft YaHei",sans-serif;
+}
+#el-wall * { box-sizing:border-box; }
+#el-wall h2,#el-wall h3,#el-wall p {margin:0}
+#el-wall h2 {font-size:25px; font-weight:700; letter-spacing:.02em}
+#el-wall h3 {font-size:15px; font-weight:650}
+#el-wall .wall-top,#el-wall .wall-context,#el-wall .wall-bar,#el-wall .wall-panel-head {
+  display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+}
+#el-wall .wall-top {padding:14px 16px 11px;border-top:3px solid var(--wall-b)}
+#el-wall .wall-eyebrow {font-size:11px;letter-spacing:.15em;color:var(--wall-b);font-weight:650}
+#el-wall .wall-context {align-items:flex-end; flex-direction:column; gap:1px}
+#el-wall .wall-context span,#el-wall .wall-basis,#el-wall .wall-panel-head span {color:var(--wall-muted);font-size:12px}
+#el-wall .wall-bar {padding:8px 16px;border-block:1px solid var(--wall-rule);background:var(--wall-header);font-size:12px;color:var(--wall-muted)}
+#el-wall .wall-bar strong {margin-left:7px;color:var(--wall-text)}
+#el-wall .wall-num,#el-wall table td,#el-wall .wall-rest,#el-wall .wall-sample,#el-wall output {
+  font-family: "Cascadia Mono",Consolas,ui-monospace,monospace; font-variant-numeric:tabular-nums;
+}
+#el-wall button {border:0; background:none; color:inherit; font:inherit}
+#el-wall button:focus-visible,#el-wall input:focus-visible {outline:2px solid var(--wall-b);outline-offset:2px}
+#el-wall .wall-switch {display:flex;gap:3px}
+#el-wall .wall-switch button {padding:5px 9px; border:1px solid var(--wall-rule)}
+#el-wall .wall-switch button[aria-pressed=true] {color:var(--wall-bg);background:var(--wall-b);border-color:var(--wall-b);font-weight:650}
+#el-wall .wall-timing {padding:10px 16px 8px}
+#el-wall table {border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+#el-wall th,#el-wall td {border-bottom:1px solid var(--wall-rule);text-align:right;padding:5px 9px}
+#el-wall th:first-child,#el-wall td:first-child {text-align:left}
+#el-wall th {color:var(--wall-muted);font-size:11px;font-weight:600;letter-spacing:.06em}
+#el-wall th button {padding:4px 8px;border:1px solid transparent}
+#el-wall th button[aria-pressed=true] {color:var(--wall-b);border-color:var(--wall-rule);background:var(--wall-pane)}
+#el-wall table td {white-space:nowrap;font-size:15px}
+#el-wall table td:last-child {font-weight:700}
+#el-wall td:first-child {font-family:inherit;font-size:13px;font-weight:650}
+#el-wall .wall-row-key {display:inline-block;width:17px;margin-right:5px}
+#el-wall .wall-a {color:var(--wall-a)} #el-wall .wall-b {color:var(--wall-b)}
+#el-wall .wall-split-active {background:var(--wall-pane)}
+#el-wall .wall-delta td {font-size:13px;background:var(--wall-header)}
+#el-wall .wall-delta td:not(:first-child) {color:var(--wall-muted)}
+#el-wall .wall-gain {color:var(--wall-fast)} #el-wall .wall-peak {color:var(--wall-best)} #el-wall .wall-loss {color:var(--wall-slow)}
+#el-wall .wall-strip {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:9px}
+#el-wall .wall-grp {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px}
+#el-wall .wall-mark {padding:1px 2px 3px;min-width:0;text-align:center;font-size:11px;font-weight:700;color:var(--wall-muted)}
+#el-wall .wall-mark::after {display:block;content:"";background:currentColor;height:4px;opacity:.76}
+#el-wall .wall-mark[aria-pressed=true] {background:var(--wall-pane);box-shadow:inset 0 0 0 1px var(--wall-b)}
+#el-wall .wall-mark.wall-gain {color:var(--wall-fast)} #el-wall .wall-mark.wall-peak {color:var(--wall-best)} #el-wall .wall-mark.wall-loss {color:var(--wall-slow)}
+#el-wall .wall-strip-key {display:flex;flex-wrap:wrap;gap:8px 13px;color:var(--wall-muted);font-size:11px;margin-top:5px}
+#el-wall .wall-key {display:inline-block;width:7px;height:7px;background:currentColor;margin-right:3px}
+#el-wall .wall-desk {display:grid;grid-template-columns:minmax(205px,29%) minmax(0,1fr);border-top:1px solid var(--wall-rule)}
+#el-wall .wall-index {border-right:1px solid var(--wall-rule);background:var(--wall-header)}
+#el-wall .wall-panel-head {padding:8px 11px;border-bottom:1px solid var(--wall-rule);background:var(--wall-pane)}
+#el-wall .wall-turn {display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;text-align:left;
+  border-bottom:1px solid var(--wall-rule);padding:8px 11px;font-size:13px}
+#el-wall .wall-turn[aria-pressed=true] {background:var(--wall-pane);box-shadow:inset 3px 0 var(--wall-b)}
+#el-wall .wall-turn span:last-child {white-space:nowrap}
+#el-wall .wall-rest {padding:7px 11px;color:var(--wall-muted);font-size:11px;border-bottom:1px solid var(--wall-rule)}
+#el-wall .wall-basis {padding:9px 11px}
+#el-wall .wall-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--wall-rule)}
+#el-wall .wall-metrics > div {padding:6px 9px;border-right:1px solid var(--wall-rule);min-width:0}
+#el-wall .wall-metrics > div:last-child {border-right:0}
+#el-wall .wall-metrics small {display:block;color:var(--wall-muted);font-size:11px}
+#el-wall .wall-metrics b {font-size:14px;display:block;margin:1px 0;font-weight:650}
+#el-wall .wall-metrics span {font-size:11px;color:var(--wall-muted)}
+#el-wall .wall-plot-head {display:flex;gap:15px;padding:7px 11px 0;font-size:12px}
+#el-wall .wall-plot-head i {display:inline-block;width:16px;vertical-align:middle;margin-right:4px}
+#el-wall .wall-a-line {border-top:2px dashed var(--wall-a)}
+#el-wall .wall-b-line {border-top:2px solid var(--wall-b)}
+#el-wall-chart {width:100%;display:block;height:187px;overflow:hidden}
+#el-wall-chart text {fill:var(--wall-muted);font:11px system-ui,sans-serif}
+#el-wall-chart .wall-grid {stroke:var(--wall-rule)}
+#el-wall-chart .wall-line-a {stroke:var(--wall-a);stroke-dasharray:4 3}
+#el-wall-chart .wall-line-b {stroke:var(--wall-b)}
+#el-wall-chart .wall-cursor-line {stroke:var(--wall-muted);stroke-width:1}
+#el-wall .wall-scrub {display:flex;gap:8px;align-items:center;padding:2px 11px;font-size:11px;color:var(--wall-muted)}
+#el-wall input {flex:1;min-width:45px;accent-color:var(--wall-b)}
+#el-wall output {min-width:40px;text-align:right}
+#el-wall .wall-sample {padding:3px 11px 9px;color:var(--wall-muted);font-size:11px}
+@media(max-width:650px) {
+  #el-wall .wall-desk {grid-template-columns:minmax(0,1fr)}
+  #el-wall .wall-index {border-right:0}
+  #el-wall .wall-context {align-items:flex-start}
+}
+@media(max-width:385px) {
+  #el-wall .wall-timing,#el-wall .wall-bar,#el-wall .wall-top {padding-inline:7px}
+  #el-wall th,#el-wall td {padding-inline:3px}
+  #el-wall table td {font-size:12px}
+  #el-wall td:first-child,#el-wall .wall-delta td {font-size:11px}
+  #el-wall .wall-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+  #el-wall .wall-metrics > div:nth-child(-n+2) {border-bottom:1px solid var(--wall-rule)}
+}
+@media(pointer:coarse) {
+  #el-wall button {min-height:44px}
+}
+
+html, body { margin:0; padding:0; background:transparent }
+#el-wall .wall-scroll { overflow-x:auto; padding-bottom:4px }
+#el-wall table { table-layout:fixed }
+#el-wall th:first-child { width:96px }
+#el-wall th:last-child { width:91px }
+#el-wall .wall-strip { display:flex; margin-inline:96px 91px; gap:2px }
+#el-wall .wall-mark { flex:1 1 0; white-space:nowrap }
+#el-wall button:disabled { opacity:.48 }
+#el-wall .wall-metrics { grid-template-columns:repeat(5,minmax(0,1fr)) }
+#el-wall [hidden] {display:none !important}
+@media(max-width:420px) {
+  #el-wall .wall-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+  #el-wall .wall-metrics > div {border-bottom:1px solid var(--wall-rule)}
+  #el-wall th:first-child {width:74px}
+  #el-wall th:last-child {width:70px}
+  #el-wall .wall-strip {margin-inline:74px 70px}
+}
+</style>

@@ -1,0 +1,22 @@
+{
+  "car": "ferrari296gt3",
+  "source": "https://s100.iracing.com/wp-content/uploads/2024/06/Ferrari-296-GT3-V4.pdf",
+  "edition": "2024-06 V4；原理已核对，当前游戏范围未自动核实",
+  "parameters": [
+    {"name":"Front ARB blades","path":"Chassis.FrontBrakesLights.ArbBlades","page":14,"up":"前侧倾刚度增加，偏推头。","down":"前侧倾刚度降低，减少推头。","group":"机械平衡"},
+    {"name":"Rear ARB blades","path":"Chassis.Rear.ArbBlades","page":22,"up":"偏转向过度。","down":"偏转向不足。","group":"机械平衡"},
+    {"name":"Front Total Toe-In","path":"Chassis.FrontBrakesLights.TotalToeIn","page":14,"up":"更偏内束，直线稳定，响应减弱。","down":"更偏外束，入弯响应增强，直线稳定减弱。","group":"机械平衡"},
+    {"name":"Traction Control","path":"Chassis.InCarAdjustments.TcSetting","page":15,"up":"干预增强，可能限制加速。","down":"干预减弱，打滑风险增加。","group":"动力与差速器"},
+    {"name":"Rear Wing Angle","path":"Chassis.Rear.RearWingAngle","page":13,"up":"下压力及阻力增加，气动平衡后移。","down":"阻力及下压力减少，平衡前移。","group":"气动平台"},
+    {"name":"Front Ride Height (LF)","path":"Chassis.LeftFront.RideHeight","page":16,"up":"前端气动负荷趋减；不能无限外推。","down":"前端气动负荷趋增；需排除触底。","group":"气动平台"},
+    {"name":"Rear Ride Height (LR)","path":"Chassis.LeftRear.RideHeight","page":17,"up":"气动平衡趋前移；超出有效高度可能丢失下压力。","down":"气动平衡趋后移；需排除触底。","group":"气动平台"},
+    {"name":"Spring Rate (LF)","path":"Chassis.LeftFront.SpringRate","page":16,"up":"姿态支撑增强，机械抓地可能受损。","down":"贴地性可能改善，姿态变化增大。","group":"气动平台"},
+    {"name":"Spring Rate (LR)","path":"Chassis.LeftRear.SpringRate","page":17,"up":"姿态支撑增强，机械抓地可能受损。","down":"贴地性可能改善，姿态变化增大。","group":"气动平台"},
+    {"name":"Differential Preload","path":"Chassis.GearsDifferential.DiffPreload","page":23,"up":"收油更稳定，收油推头可能增加。","down":"收油更愿意旋转，入弯稳定性可能降低。","group":"动力与差速器"}
+  ],
+  "couplings": [
+    {"name":"尾翼 × 前后车高 × 弹簧","group":"气动平台","pages":[13,16,22],"document":"手册把翼角与前后车高共同用于气动平衡；更换弹簧后需复核车高。","workflow":"先明确目标：改善车尾稳定，还是降低阻力且保留原平衡。保存 A；只改主变量做 B；如需补偿，再建立 C 并与 B 对照。不要为了保平衡而抵消本来想获得的稳定性。","checks":["区分静态 Garage 车高与行驶中的动态车高。","左右车高、Cross Weight、满油／低油量、触底与 Passed Tech 一起复核。","没有动态车高时保留平台未验证项，不输出所谓最优车高组合。"],"historical_reference":"第 22 页旧版关系参考：翼角 +1 时，可用前高 −1 mm 或后高 +3 mm 作为保平衡参考；反向亦然。这不是当前游戏的合法档位，也不是可直接套用的纽北目标值。"},
+    {"name":"前防倾杆 × 后防倾杆","group":"机械平衡","pages":[14,22],"document":"前后防倾杆共同影响平衡、响应及机械抓地。","workflow":"目标弯先只改一端，记录响应和稳定性；再决定是否需要另一端配合。两端一起变软不等于同时获得更灵敏和更稳定。","checks":["保持其他设置与驾驶条件尽量一致。","复查连续变向、路肩及高速表现。"]},
+    {"name":"TC × 差速器 × 油门输入","group":"动力与差速器","pages":[15,23],"document":"TC 与差速器作用阶段不同，不能把同一档位视为同一种平衡修正。","workflow":"先分清问题发生在收油、拖刹还是重新加油。把电子干预与机械平衡分开测试，记录加速代价。","checks":["油门输入和打滑／介入症状必须区分。","不能仅凭一次车尾滑动判断差速器设置错误。"]}
+  ]
+}

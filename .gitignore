@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+outputs/
+tmp/
+/build/
+/dist/
+/.env
+/.env.*
+*.ibt
+*.sto
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.log
+/验收记录.md

@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "description": "首轮实验幅度上限是产品保守策略，不是游戏合法范围；目标必须另有同上下文实际记录支持。",
+  "max_change": {"Front ARB blades": 15.0, "Front Total Toe-In": 0.1, "Traction Control": 1.0, "Rear Wing Angle": 1.0}
+}

@@ -1,0 +1,19 @@
+[global]
+developmentMode = false
+
+[server]
+address = "127.0.0.1"
+port = 19391
+headless = true
+maxUploadSize = 1024
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#A9E86C"
+backgroundColor = "#0C1419"
+secondaryBackgroundColor = "#15222B"
+textColor = "#E9F0F1"
+font = "sans serif"

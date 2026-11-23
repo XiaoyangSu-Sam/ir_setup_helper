@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "car": "ferrari296gt3",
+  "source": "https://s100.iracing.com/wp-content/uploads/2024/06/Ferrari-296-GT3-V4.pdf",
+  "source_note": "官方手册 2024-06 版。原理参考，不代表已核实当前游戏的参数范围。",
+  "rules": [
+    {
+      "id": "front_response", "symptoms": ["入弯推头", "弯中推头"],
+      "parameter": "Front ARB blades", "path": "Chassis.FrontBrakesLights.ArbBlades",
+      "direction": "降低前防倾杆叶片角度作为单变量试调，按工具给出的目标值执行，其他设置保持基准。",
+      "sign": -1, "source_page": 14,
+      "mechanism": "该车型前 ARB 叶片角度降低会降低前轴侧倾刚度，是减少转向不足的一个测试方向。",
+      "risk": "车身支撑及动态姿态可能改变；需复查高速和连续变向，不保证一定更快。",
+      "verify": "保持相近入弯速度和刹车释放，比较弯心路线维持、方向输入与出弯速度；同时记录是否出现新的车尾不稳。"
+    },
+    {
+      "id": "turn_in_response", "symptoms": ["入弯迟钝"],
+      "parameter": "Front Total Toe-In", "path": "Chassis.FrontBrakesLights.TotalToeIn",
+      "direction": "若问题是初始转向响应，考虑减少 Front Total Toe-In（更偏外束）；先排除入弯速度及刹车释放差异。",
+      "sign": -1, "source_page": 14,
+      "mechanism": "方向作用见参数说明；这不证明迟钝一定由前束造成。",
+      "risk": "直线稳定性及轮胎表现可能受损；耐力赛不要只追求第一下更敏感。",
+      "verify": "选择同一入弯，保持相近速度和刹车释放，比较车头响应；再检查长直线和连续弯。"
+    },
+    {
+      "id": "fast_rear_stability", "symptoms": ["高速车尾不稳"],
+      "parameter": "Rear Wing Angle", "path": "Chassis.Rear.RearWingAngle",
+      "direction": "若平整高速弯持续缺少车尾信心，可把增加尾翼作为小幅实验方向；先检查是否仅发生在触底或压路肩时。",
+      "sign": 1, "source_page": 13,
+      "mechanism": "方向作用见参数说明；高速不稳还可能来自平台或驾驶输入。",
+      "risk": "直线速度和前后平衡会改变。若目标是改善稳定性，不应机械地抵消所有后移的平衡。",
+      "verify": "用同一高速弯和直线比较信心、修正和速度；没有动态车高记录时，气动平台仍标为未验证。"
+    },
+    {
+      "id": "fast_understeer", "symptoms": ["高速推头"],
+      "parameter": "Rear Wing Angle", "path": "Chassis.Rear.RearWingAngle",
+      "direction": "把减小尾翼作为有条件的候选实验；先检查是否超速入弯、前端触底或已有车尾不稳。",
+      "sign": -1, "source_page": 22,
+      "mechanism": "方向作用见参数说明；转向平衡改善不等于总抓地增加。",
+      "risk": "可能损失高速抓地和车尾稳定；若已经滑尾，不优先进行此实验。",
+      "verify": "同时复查弯中转向、车尾可控性和高速通过速度，不仅看直线极速。"
+    },
+    {
+      "id": "exit_control", "symptoms": ["出弯不稳"],
+      "parameter": "Traction Control", "path": "Chassis.InCarAdjustments.TcSetting",
+      "direction": "增加 TC 干预作为单变量试调，按工具给出的目标值执行，其他设置保持基准。",
+      "sign": 1, "source_page": 15,
+      "mechanism": "更高 TC 干预可以抑制驱动轮打滑，但可能限制加速。",
+      "risk": "出弯动力可能被过度削减；不能用 TC 掩盖突然全油等输入问题。",
+      "verify": "在相同弯道比较油门上升、方向修正和出弯后速度，记录是否更容易连续稳定驾驶。"
+    },
+    {
+      "id": "high_speed_review", "symptoms": ["高速不放心"],
+      "parameter": "Aero balance / Rear Wing", "path": "Chassis.Rear.RearWingAngle",
+      "direction": "先检查动态车高和 Aero Balance Calculator，区分推头、车尾不稳及触底；本轮不直接改变尾翼。",
+      "sign": 0, "source_page": 13,
+      "mechanism": "尾翼同时影响总下压力、阻力和前后气动平衡，必须结合动态车高观察。",
+      "risk": "单凭高速不放心就加减尾翼，可能改善一端却恶化另一端。",
+      "verify": "选同一高速弯记录速度、方向、横摆及可用车高通道，先描述是车头不转还是车尾摆动。"
+    }
+  ]
+}

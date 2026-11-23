@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "reviews": [
+    {
+      "id": "296-s4-patch2-parameter-review-20261111",
+      "car": "ferrari296gt3",
+      "from_build": "2026.10.01.01",
+      "to_build": "2026.11.02.01",
+      "required_installed_car_component": "2026.09.25.02",
+      "parameters": ["Front ARB blades", "Front Total Toe-In", "Traction Control", "Rear Wing Angle"],
+      "matching_settings": {"Front ARB blades": ["Chassis.FrontBrakesLights.ArbOptions"]},
+      "reviewed_on": "2026-11-11",
+      "source": "https://support.iracing.com/support/solutions/articles/31000179983-2026-season-4-patch-2-release-notes-2026-11-02-01-",
+      "basis": "本机车辆包版本为 2026.09.25.02，早于参数样本的 2026.10.01.01；已核对 Patch 2 官方完整更新说明，未列出 Ferrari 296 或 GT3 参数档位变更。只将此前实际出现的同车同布局数值作为试调候选。",
+      "limitation": "这是参数兼容性的工程推断，不是官方兼容声明；车辆包版本本身不能证明所有物理与规则未变化。不是完整范围、步长、整车 Tech 或效果验证；不能据此跨版本比较圈速。"
+    }
+  ]
+}

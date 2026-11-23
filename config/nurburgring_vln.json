@@ -1,0 +1,14 @@
+{
+  "track_id": "262",
+  "track": "nurburgring combinedshortb",
+  "track_length_m": 24154.4,
+  "description": "按本机 2026-03-30 完整圈及 2026-10-12 练习片段的速度、制动和转向方向核对的分析窗口。距离绑定此布局起终点；apex 为分析参考点，不声称是官方地理弯心。未校准的其他区域仍使用官方计时分段草稿。",
+  "sources": [
+    "ferrari296gt3_nurburgring combinedshortb 2026-03-30 23-14-02.ibt / lap_id 5",
+    "ferrari296gt3_nurburgring combinedshortb 2026-10-12 23-12-44.ibt / lap_id 10"
+  ],
+  "corners": [
+    {"name": "GP 左右连续弯 · 整组（约 2.85–3.15 km）", "start_m": 2800.0, "mid_start_m": 2920.0, "apex_m": 2975.0, "mid_end_m": 3075.0, "end_m": 3150.0, "verified": true},
+    {"name": "GP 左右连续弯 · 第一个左弯", "start_m": 2800.0, "mid_start_m": 2930.0, "apex_m": 2975.0, "mid_end_m": 2990.0, "end_m": 3010.0, "verified": true}
+  ]
+}
