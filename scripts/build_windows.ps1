@@ -2,7 +2,9 @@
 param(
     [string]$Python = '',
     [string]$Iscc = '',
-    [switch]$BundleOnly
+    [string]$RegistrationPackage = '',
+    [switch]$BundleOnly,
+    [switch]$ReuseSetupBundle
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,8 +29,14 @@ try {
         '--add-data', "$root/.streamlit/config.toml:.streamlit"
         '--add-data', "$root/endurance/ui_assets:endurance/ui_assets", 'launch.py'
     )
-    & $Python -m PyInstaller @bundleArgs
-    if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
+    if ($ReuseSetupBundle) {
+        if (!(Test-Path -LiteralPath 'build/windows/IRSetupHelper/IRSetupHelper.exe' -PathType Leaf)) {
+            throw 'No existing Windows setup-helper build to reuse.'
+        }
+    } else {
+        & $Python -m PyInstaller @bundleArgs
+        if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
+    }
     if ($BundleOnly) { return }
 
     if (!$Iscc) {
@@ -42,10 +50,18 @@ try {
         if (!$candidate) { throw 'Install Inno Setup or pass -Iscc with the path to ISCC.exe.' }
         $Iscc = $candidate
     }
-    & $Iscc "/DAppVersion=$version" 'packaging/windows.iss'
+    $installerArgs = @("/DAppVersion=$version")
+    $product = 'IRSetupHelper'
+    if ($RegistrationPackage) {
+        $staging = & $Python -X utf8 scripts/stage_registration.py $RegistrationPackage build/windows
+        if ($LASTEXITCODE -ne 0 -or !$staging) { throw 'Could not verify and stage the registration assistant.' }
+        $installerArgs += "/DRegistrationRoot=$staging"
+        $product = 'IRacingTools'
+    }
+    & $Iscc /Q @installerArgs 'packaging/windows.iss'
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
 
-    $artifact = "IRSetupHelper-$version-windows-x64-setup.exe"
+    $artifact = "$product-$version-windows-x64-setup.exe"
     $checksum = (Get-FileHash -LiteralPath "dist/$artifact" -Algorithm SHA256).Hash.ToLowerInvariant()
     Set-Content -LiteralPath "dist/$artifact.sha256" -Encoding ascii -Value "$checksum  $artifact"
     Get-Item -LiteralPath "dist/$artifact", "dist/$artifact.sha256"

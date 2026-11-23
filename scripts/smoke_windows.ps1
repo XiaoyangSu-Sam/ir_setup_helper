@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Installer = '')
+param([string]$Installer = '', [switch]$WithRegistration)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -13,17 +13,23 @@ $program = Join-Path $work 'program'
 $library = Join-Path $work 'library'
 $runtime = Join-Path $library 'runtime-installed'
 $launcher = Join-Path $program 'IRSetupHelper.exe'
+$registration = Join-Path $program 'registration'
+$registrationData = Join-Path $registration 'data'
 $priorData = $env:ENDURANCE_DATA_DIR
 $priorWatcher = $env:ENDURANCE_NO_WATCHER
 $priorLive = $env:ENDURANCE_NO_LIVE
 New-Item -ItemType Directory -Path $work | Out-Null
 
-function Install-Product {
+function Install-Product([switch]$ExpectBlocked) {
     $setupLog = Join-Path $work 'install.log'
     $result = Start-Process -FilePath $Installer -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
         ('/DIR="' + $program + '"'), ('/LOG="' + $setupLog + '"')
     ) -WindowStyle Hidden -Wait -PassThru
+    if ($ExpectBlocked) {
+        if ($result.ExitCode -eq 0) { throw 'Upgrade continued while the registration assistant was active.' }
+        return
+    }
     if ($result.ExitCode -ne 0) { throw "Installation exited with $($result.ExitCode). See $setupLog." }
 }
 
@@ -55,6 +61,54 @@ try {
     if ((Invoke-WebRequest $service -TimeoutSec 5).Content -notmatch '<title>Streamlit</title>') {
         throw 'Installed server did not serve its browser frontend.'
     }
+    if ($WithRegistration) {
+        $bridge = Join-Path $registration 'NativeBridge.exe'
+        $node = Join-Path $registration 'runtime/node/node.exe'
+        if (!(Test-Path -LiteralPath $bridge) -or !(Test-Path -LiteralPath $node) -or
+            (Test-Path -LiteralPath $registrationData)) {
+            throw 'Registration files are missing or the installer included an existing registration library.'
+        }
+        if (Get-NetTCPConnection -LocalPort 19390 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 19390 is in use. Run the registration smoke test while that service is stopped.'
+        }
+        # Run only the backend with an empty test library. NativeBridge would also open iRacing.
+        $registrationServer = Start-Process -FilePath $node -ArgumentList 'server.mjs' -WorkingDirectory $registration -WindowStyle Hidden -PassThru
+        try {
+            $console = $null
+            for ($attempt = 0; $attempt -lt 30 -and !$registrationServer.HasExited; $attempt++) {
+                try {
+                    $console = Invoke-WebRequest 'http://127.0.0.1:19390/' -TimeoutSec 2
+                    break
+                } catch {
+                    Start-Sleep -Milliseconds 400
+                }
+            }
+            if ($console.StatusCode -ne 200 -or $console.Content -notmatch '报名' -or
+                !(Test-Path -LiteralPath (Join-Path $registrationData 'tasks.sqlite'))) {
+                throw 'The installed registration service did not load its UI and create an empty database.'
+            }
+            if ((Invoke-WebRequest "$service/_stcore/health" -TimeoutSec 5).StatusCode -ne 200) {
+                throw 'The two installed services could not run together.'
+            }
+        }
+        finally {
+            if (!$registrationServer.HasExited) {
+                Stop-Process -InputObject $registrationServer
+                $registrationServer.WaitForExit()
+            }
+        }
+        $created = $false
+        $bridgeMutex = [Threading.Mutex]::new($true, 'Local\CodexIRacingNativeBridge', [ref]$created)
+        try {
+            if (!$created) { throw 'An existing registration assistant owns the bridge mutex.' }
+            Install-Product -ExpectBlocked
+            if ($running.HasExited) { throw 'The blocked upgrade stopped the setup helper.' }
+        }
+        finally {
+            if ($created) { $bridgeMutex.ReleaseMutex() }
+            $bridgeMutex.Dispose()
+        }
+    }
     Set-Content -LiteralPath (Join-Path $library 'preserve.txt') -Value 'existing driver data'
     Install-Product
     if (!$running.WaitForExit(15000)) { throw 'Upgrade did not stop the existing server.' }
@@ -63,6 +117,9 @@ try {
     $result = Start-Process -FilePath $remove.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -Wait -PassThru
     if ($result.ExitCode -ne 0 -or (Test-Path -LiteralPath $launcher)) { throw 'Uninstall failed.' }
     if (!(Test-Path -LiteralPath (Join-Path $library 'preserve.txt'))) { throw 'Uninstall removed driver data.' }
+    if ($WithRegistration -and !(Test-Path -LiteralPath (Join-Path $registrationData 'tasks.sqlite'))) {
+        throw 'Uninstall removed the registration library.'
+    }
     Write-Output "Installation, local startup, upgrade, and data-preserving uninstall passed. Log: $work"
 }
 finally {

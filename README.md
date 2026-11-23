@@ -13,7 +13,24 @@
     python -m pip install -r requirements.lock.txt pyinstaller==6.22.3
     powershell -File scripts/build_windows.ps1 -Python python
 
-安装包和校验文件生成在 dist 目录。GitHub Actions 会构建匹配项目版本号的 v* 标签，并把安装包附到对应 Release。
+安装包和校验文件生成在 dist 目录。发布与项目版本号匹配的 v* 标签时，GitHub Actions 会构建并验收单独调教版和合装版，把两份 EXE 和各自的校验文件放在同一个 Release。
+
+### 调教与报名合装
+
+在 Windows 本机构建时，用报名助手原来的干净分享 ZIP 作为第二个组件。下面以 0.4.1 预览分享包为例。
+
+    powershell -File scripts/build_windows.ps1 -RegistrationPackage "D:\path\iRacingAssistant-0.4.1-preview.zip"
+
+生成的 IRacingTools 安装包会在开始菜单的 **iRacing Tools** 中提供 **IR Setup Helper** 和 **iRacing Registration Assistant**。调教使用 19392，报名使用 19390。合装可以升级先前安装的调教版。报名由用户从开始菜单打开，已有报名预约和手机访问配置保存在原来使用的报名助手目录。合装后的报名入口使用安装目录下的 registration\data，两个数据目录各自保留。报名助手运行期间，安装程序会暂缓覆盖安装或卸载，待用户退出报名助手后可继续。
+
+合装的报名功能沿用原版。Mazda 个人赛支持预约，耐力赛车队功能仍用于查看赛事和准备队伍。本地构建只接收分享 ZIP 中获准的程序文件，并校验文件清单。已有独立报名助手运行时，请从原来的托盘入口继续使用。
+
+报名助手升级时，从新分享包导出干净的运行组件。下面以报名版本 0.4.1-preview 为例。
+
+    python -X utf8 scripts/stage_registration.py "D:\path\registration-share.zip" build/windows --export-runtime dist/iracing-registration-runtime-0.4.1-preview.zip
+    Get-FileHash dist/iracing-registration-runtime-0.4.1-preview.zip
+
+把运行组件附到同一 GitHub 仓库的 registration-v0.4.1-preview 预发布，再更新 packaging/registration-release.json 中的版本和 SHA-256。下一次套件发布会用这份固定版本重建合装版。既有版本使用其发布时锁定的报名组件。
 
 ## 0.6：带数值和来源的试调候选
 
