@@ -39,7 +39,14 @@ try {
     $env:ENDURANCE_NO_LIVE = '1'
     Install-Product
     if (!(Test-Path -LiteralPath $launcher)) { throw 'Installer did not copy the executable.' }
-    foreach ($asset in @('_internal/app.py', '_internal/config/setup_rules.json', '_internal/endurance/ui_assets/timing-wall.js')) {
+    $assets = @(
+        '_internal/app.py'
+        '_internal/config/setup_rules.json'
+        '_internal/endurance/ui_assets/timing-wall.js'
+        '_internal/endurance/ui_assets/video-reference.html'
+        '_internal/endurance/ui_assets/video-reference.js'
+    )
+    foreach ($asset in $assets) {
         if (!(Test-Path -LiteralPath (Join-Path $program $asset))) { throw "Missing bundled asset: $asset" }
     }
     $running = Start-Process -FilePath $launcher -ArgumentList '--no-browser' -WindowStyle Hidden -PassThru

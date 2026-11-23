@@ -26,6 +26,7 @@ from endurance.knowledge import initial_baseline
 from endurance.ui_guidance import render_guidance, render_knowledge, subjective_validation
 from endurance.ui_adjustment import render_automatic_checks
 from endurance.ui_timing_wall import render_timing_wall
+from endurance.ui_video_reference import choose_video_reference, render_video_comparison
 
 st.set_page_config(page_title="耐力调教 · Endurance Lab", page_icon="🏁", layout="wide")
 st.markdown("""
@@ -229,9 +230,11 @@ def show_data():
         st.dataframe([{"文件": Path(p).name, "状态": msg} for p, msg in list(watcher.messages.items())], hide_index=True)
 
 
-def chart_trace(result):
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=.045,
-                        subplot_titles=("速度 · km/h", "踏板输入 · 0–1", "方向盘 · °", "相对参考耗时 · s"))
+def chart_trace(result, video=None):
+    headings = ["速度 · km/h", "踏板输入 · 0–1", "方向盘 · °"]
+    if result["reference"] is not None:
+        headings.append("相对参考耗时 · s")
+    fig = make_subplots(rows=len(headings), cols=1, shared_xaxes=True, vertical_spacing=.045, subplot_titles=headings)
     for label, trace, color in (("本圈", result["trace"], "#a9e86c"), ("参考", result["reference"], "#70b9ec")):
         if trace is None:
             continue
@@ -243,16 +246,22 @@ def chart_trace(result):
     if result["reference"] is not None:
         fig.add_trace(go.Scatter(x=result["trace"]["distance_m"], y=result["trace"]["elapsed_s"] - result["reference"]["elapsed_s"],
                                 name="正值：本圈更慢", line=dict(color="#f5bc73")), row=4, col=1)
-    fig.update_layout(height=730, template="plotly_dark", paper_bgcolor="#0c1419", plot_bgcolor="#15222b",
+    if video and video["aligned"]:
+        points = [p for p in video["speeds"] if p["video"] is not None]
+        if points:
+            fig.add_trace(go.Scatter(x=[p["distance"] for p in points], y=[p["video"] for p in points],
+                                     mode="markers", name="视频画面读数", marker=dict(color="#70b9ec", symbol="diamond", size=9),
+                                     hovertemplate="%{x:.0f} m · %{y:.1f} km/h<extra>视频画面</extra>"), row=1, col=1)
+    fig.update_layout(height=730 if len(headings) == 4 else 590, template="plotly_dark", paper_bgcolor="#0c1419", plot_bgcolor="#15222b",
                       margin=dict(l=20, r=20, t=40, b=20), legend=dict(orientation="h"))
-    fig.update_xaxes(title_text="本布局距离 · m", row=4, col=1)
+    fig.update_xaxes(title_text="本布局距离 · m", row=len(headings), col=1)
     return fig
 
 
 def show_corners():
     st.title("弯道与参考圈")
     if not current:
-        st.info("先导入一份遥测记录。")
+        st.info("先导入本机 .ibt 遥测，用这份记录的布局和距离对照参考圈。")
         return
     meta, df = current["meta"], samples(current)
     key = f"corners:{meta['track_id']}:{meta['track']}"
@@ -289,9 +298,14 @@ def show_corners():
     st.plotly_chart(overview, width="stretch")
     selected = st.selectbox("弯道／连续弯分段", range(len(corners)), format_func=lambda i: corners[i]["name"])
     corner = corners[selected]
-    references = [r for r in records if r["meta"]["car"] == car and r["meta"]["track_id"] == meta["track_id"] and r["meta"]["track"] == meta["track"]]
-    ref_id = st.selectbox("参考记录（可选）", [None] + [r["id"] for r in references],
-                         format_func=lambda x: "不使用参考圈" if x is None else record_label(by_id[x]))
+    source = st.radio("参考来源", ["本机遥测 .ibt", "教学视频"], horizontal=True)
+    ref_id = None
+    video_ref = None
+    if source == "教学视频":
+        video_ref = choose_video_reference(store, meta, corner)
+    else:
+        ref_id = st.selectbox("参考记录（可选）", [None] + [r["id"] for r in available],
+                             format_func=lambda x: "不使用参考圈" if x is None else record_label(by_id[x]))
     ref_lap = None
     if ref_id:
         reference = by_id[ref_id]
@@ -314,7 +328,12 @@ def show_corners():
         result["phases"] = []
         result["facts"] = [f for f in result["facts"] if "开始刹车" not in f and "出弯达到" not in f]
         st.warning("此分段阶段边界尚未核对：仅显示整体曲线，不把草稿阶段解释为真实入弯／弯中／出弯。")
-    st.plotly_chart(chart_trace(result), width="stretch")
+    video = None
+    if video_ref is not None:
+        own = next(l for l in current["laps"] if l["lap_id"] == chosen)
+        video = render_video_comparison(video_ref, meta, corner, result["trace"], own)
+        result["facts"] = [f for f in result["facts"] if not f.startswith("未选择参考圈")]
+    st.plotly_chart(chart_trace(result, video), width="stretch")
     if result["phases"]:
         st.dataframe(result["phases"], hide_index=True, width="stretch")
     st.markdown("**观测事实**")

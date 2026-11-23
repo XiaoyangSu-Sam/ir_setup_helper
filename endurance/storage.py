@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -40,6 +41,9 @@ class Store:
         self.db.execute("CREATE TABLE IF NOT EXISTS preferences (key VARCHAR PRIMARY KEY, value VARCHAR)")
         self.db.execute("CREATE TABLE IF NOT EXISTS experiments (id VARCHAR PRIMARY KEY, created_at VARCHAR, payload VARCHAR)")
         self.db.execute("CREATE TABLE IF NOT EXISTS versions (id VARCHAR PRIMARY KEY, created_at VARCHAR, payload VARCHAR)")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS video_references
+                        (id VARCHAR PRIMARY KEY, car VARCHAR, track_id VARCHAR, track VARCHAR,
+                         corner VARCHAR, created_at VARCHAR, payload VARCHAR)""")
 
     def close(self):
         with self.lock:
@@ -53,6 +57,22 @@ class Store:
     def set_setting(self, key: str, value):
         with self.lock:
             self.db.execute("INSERT OR REPLACE INTO preferences VALUES (?,?)", [key, dump(value)])
+
+    def save_video_reference(self, reference: dict) -> str:
+        payload = dump(reference)
+        identifier = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        with self.lock:
+            self.db.execute("INSERT OR IGNORE INTO video_references VALUES (?,?,?,?,?,?,?)",
+                            [identifier, reference["car"], reference["track_id"], reference["track"],
+                             reference["corner"], now(), payload])
+        return identifier
+
+    def video_references(self, car, track_id, track, corner):
+        with self.lock:
+            rows = self.db.execute("""SELECT id,payload FROM video_references
+                                    WHERE car=? AND track_id=? AND track=? AND corner=?
+                                    ORDER BY created_at DESC, id""", [car, track_id, track, corner]).fetchall()
+        return {identifier: json.loads(payload) for identifier, payload in rows}
 
     def known_source(self, path: Path) -> bool:
         stat = path.stat()

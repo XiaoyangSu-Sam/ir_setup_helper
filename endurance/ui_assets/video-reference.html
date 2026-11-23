@@ -1,0 +1,81 @@
+<style>
+  :host {
+    color: var(--st-text-color, #e9f0f1);
+    font-family: var(--st-font, system-ui);
+  }
+  .player, .marker-form { display: grid; gap: .6rem; }
+  .player { margin-bottom: 1rem; }
+  .player video { width: 100%; max-height: 22rem; background: #0c1419; }
+  .player [hidden] { display: none !important; }
+  .player label, .marker-form label { display: grid; gap: .3rem; }
+  .marker-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+    align-items: end;
+    gap: .5rem;
+    padding-block: .35rem;
+  }
+  .player-controls { display: flex; align-items: center; gap: .5rem; }
+  input:not([type="file"]), button {
+    box-sizing: border-box;
+    min-height: 2.4rem;
+    padding: .35rem .65rem;
+    color: var(--st-text-color, #e9f0f1);
+    font: inherit;
+    border: 1px solid var(--st-border-color, #3b505a);
+    border-radius: .42rem;
+    background: var(--st-secondary-background-color, #15222b);
+  }
+  input:not([type="file"]) { width: 100%; }
+  button:not(:disabled) { cursor: pointer; }
+  button:not(:disabled):hover { border-color: var(--st-primary-color, #a9e86c); }
+  input:focus-visible, button:focus-visible, video:focus-visible {
+    outline: 2px solid var(--st-primary-color, #a9e86c);
+    outline-offset: 2px;
+  }
+  button:disabled { opacity: .52; }
+  .marker-form button[type="submit"] { justify-self: start; margin-top: .3rem; }
+  .player output { font-variant-numeric: tabular-nums; }
+  @media (max-width: 550px) {
+    .marker-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .capture { grid-column: 1 / -1; justify-self: start; }
+  }
+</style>
+<div class="player">
+  <label>本机视频（可选）<input class="video-file" type="file" accept="video/*,.mp4,.webm,.mov"></label>
+  <video controls playsinline preload="metadata" aria-label="教学视频播放器" hidden></video>
+  <div class="player-controls" hidden>
+    <button type="button" data-step="-0.1">后退 0.1 秒</button>
+    <button type="button" data-step="0.1">前进 0.1 秒</button>
+    <output>0.000 秒</output>
+  </div>
+  <div class="player-status" role="status"></div>
+</div>
+<form class="marker-form" aria-label="视频分段标记">
+  <div class="marker-row">
+    <label>入段时刻<input name="start" required maxlength="20" placeholder="秒数或 分:秒"></label>
+    <label>入段速度 km/h<input name="speed_start" type="number" min="0" max="500" step="any"></label>
+    <button class="capture" type="button" data-mark="start" aria-label="取当前帧为入段时刻" disabled>取当前帧</button>
+  </div>
+  <div class="marker-row">
+    <label>弯心时刻<input name="apex" required maxlength="20" placeholder="秒数或 分:秒"></label>
+    <label>弯心速度 km/h<input name="speed_apex" type="number" min="0" max="500" step="any"></label>
+    <button class="capture" type="button" data-mark="apex" aria-label="取当前帧为弯心时刻" disabled>取当前帧</button>
+  </div>
+  <div class="marker-row">
+    <label>出段时刻<input name="end" required maxlength="20" placeholder="秒数或 分:秒"></label>
+    <label>出段速度 km/h<input name="speed_end" type="number" min="0" max="500" step="any"></label>
+    <button class="capture" type="button" data-mark="end" aria-label="取当前帧为出段时刻" disabled>取当前帧</button>
+  </div>
+  <div class="marker-row">
+    <label>开始刹车时刻<input name="brake" maxlength="20" placeholder="画面可见时填写"></label>
+    <span></span>
+    <button class="capture" type="button" data-mark="brake" aria-label="取当前帧为开始刹车时刻" disabled>取当前帧</button>
+  </div>
+  <div class="marker-row">
+    <label>出弯开油时刻<input name="throttle" maxlength="20" placeholder="画面可见时填写"></label>
+    <span></span>
+    <button class="capture" type="button" data-mark="throttle" aria-label="取当前帧为出弯开油时刻" disabled>取当前帧</button>
+  </div>
+  <button type="submit">保存参考分段</button>
+</form>
