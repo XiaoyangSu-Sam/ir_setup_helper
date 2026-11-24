@@ -18,6 +18,16 @@ def open_app(root, monkeypatch):
     return AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=30).run()
 
 
+def test_source_edition_can_open_registration_workspace(tmp_path, monkeypatch):
+    monkeypatch.setattr("endurance.ui_tools.registration_exe", lambda: tmp_path / "missing" / "NativeBridge.exe")
+    app = open_app(tmp_path / "data", monkeypatch)
+    next(widget for widget in app.radio if widget.key == "workspace_page").set_value("赛事报名").run()
+    assert not app.exception
+    assert any(title.value == "赛事报名" for title in app.title)
+    assert any("安装 Windows 合装版" in note.value for note in app.info)
+    assert any("当前 源码版" in note.value for note in app.caption)
+
+
 def no_engineering_form(app):
     labels = [w.label for kind in (app.text_input, app.checkbox, app.selectbox) for w in kind]
     for forbidden in ("最小值", "最大值", "每档步长", "完整可选值", "Passed Tech", "实际参数值", "本次 Tech", "我已核实", "这份设置的游戏版本"):

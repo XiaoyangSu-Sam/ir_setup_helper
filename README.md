@@ -4,6 +4,8 @@
 
 ## Windows 安装版
 
+安装后可在调教助手侧栏的「版本与更新」主动检查 GitHub。选择下载并打开安装程序后，助手会先核对 SHA-256 和文件大小。覆盖安装请先从托盘退出正在运行的报名助手。合装版可从调教助手的「赛事报名」启动报名助手。
+
 从 [GitHub Releases](https://github.com/XiaoyangSu-Sam/ir_setup_helper/releases) 下载适合 64 位 Windows 的 EXE 安装包，双击安装。安装包含 Python 运行环境，使用当前 Windows 用户权限。安装后从开始菜单打开 **IR Setup Helper**，默认浏览器会打开本机界面 <http://127.0.0.1:19392>。选择开始菜单里的 **Stop IR Setup Helper** 可以停止后台服务。
 
 安装版的数据目录为 %LOCALAPPDATA%\IRSetupHelper\data，升级和卸载会保留这里的记录与档案。源码版沿用项目内的 data 目录与 19391 端口。两个版本的数据各自保存。安装包旁的 .sha256 文件可用于核对下载完整性。

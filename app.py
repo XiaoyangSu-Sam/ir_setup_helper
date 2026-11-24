@@ -26,6 +26,7 @@ from endurance.knowledge import initial_baseline
 from endurance.ui_guidance import render_guidance, render_knowledge, subjective_validation
 from endurance.ui_adjustment import render_automatic_checks
 from endurance.ui_timing_wall import render_timing_wall
+from endurance.ui_tools import show_registration, show_updates
 from endurance.ui_video_reference import choose_video_reference, render_video_comparison
 
 st.set_page_config(page_title="耐力调教 · Endurance Lab", page_icon="🏁", layout="wide")
@@ -106,7 +107,7 @@ with st.sidebar:
     st.markdown('<div class="eyebrow">ENDURANCE LAB / PERSONAL</div>', unsafe_allow_html=True)
     st.title("耐力调教")
     st.caption("更愿意转向，也能稳定跑下去。")
-    page = st.radio("工作区", ["赛前工作台", "驾驶记录", "弯道与参考圈", "试跑验证", "设置档案", "参数与搭配"],
+    page = st.radio("工作区", ["赛前工作台", "驾驶记录", "弯道与参考圈", "试跑验证", "设置档案", "参数与搭配", "赛事报名"],
                     label_visibility="collapsed", key="workspace_page")
     st.divider()
     cars = list(dict.fromkeys(["ferrari296gt3"] + [r["meta"]["car"] for r in records]))
@@ -125,6 +126,7 @@ with st.sidebar:
     st.caption("本机处理 · 只读游戏数据\n\n比赛时长和单段时长分别记录")
     if st.button("刷新记录与状态", width="stretch"):
         st.rerun()
+    show_updates(store.root)
 
 
 def show_plan():
@@ -539,5 +541,5 @@ def show_archive():
 
 
 {"赛前工作台": show_plan, "驾驶记录": show_data, "弯道与参考圈": show_corners,
- "试跑验证": show_validation, "设置档案": show_archive,
+ "试跑验证": show_validation, "设置档案": show_archive, "赛事报名": show_registration,
  "参数与搭配": lambda: render_knowledge(store, current, car, selected_track)}[page]()

@@ -41,6 +41,7 @@ try {
     if (!(Test-Path -LiteralPath $launcher)) { throw 'Installer did not copy the executable.' }
     $assets = @(
         '_internal/app.py'
+        '_internal/pyproject.toml'
         '_internal/config/setup_rules.json'
         '_internal/endurance/ui_assets/timing-wall.js'
         '_internal/endurance/ui_assets/video-reference.html'

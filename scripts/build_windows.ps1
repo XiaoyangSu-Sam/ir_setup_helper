@@ -25,7 +25,7 @@ try {
         '--recursive-copy-metadata', 'streamlit', '--collect-all', 'tzdata', '--collect-all', '_polars_runtime_32'
         '--copy-metadata', 'polars', '--copy-metadata', 'polars-runtime-32'
         '--copy-metadata', 'PyYAML', '--copy-metadata', 'duckdb'
-        '--add-data', "$root/app.py:.", '--add-data', "$root/config:config"
+        '--add-data', "$root/app.py:.", '--add-data', "$root/pyproject.toml:.", '--add-data', "$root/config:config"
         '--add-data', "$root/.streamlit/config.toml:.streamlit"
         '--add-data', "$root/endurance/ui_assets:endurance/ui_assets", 'launch.py'
     )
