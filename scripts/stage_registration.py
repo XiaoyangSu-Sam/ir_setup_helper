@@ -29,9 +29,10 @@ OPTIONAL = {
     )
 }
 NON_RUNTIME = {"NativeBridge.cs", "启动报名助手.cmd", "新手使用说明.md"}
+PROJECT_OVERRIDES = ("team-progress.mjs", "web/team.js")
 
 
-def stage(package: Path, build: Path) -> Path:
+def stage(package: Path, build: Path, overrides: Path | None = None) -> Path:
     sidecar = package.with_suffix(package.suffix + ".sha256")
     if sidecar.exists():
         with package.open("rb") as stream:
@@ -73,6 +74,9 @@ def stage(package: Path, build: Path) -> Path:
             file = dest / relative
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_bytes(data)
+        if overrides is not None:
+            for relative in PROJECT_OVERRIDES:
+                (dest / relative).write_bytes((overrides / relative).read_bytes())
         return dest
 
 
@@ -98,9 +102,10 @@ if __name__ == "__main__":
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("package", type=Path)
     cli.add_argument("build", type=Path)
+    cli.add_argument("--overrides", type=Path)
     cli.add_argument("--export-runtime", type=Path)
     args = cli.parse_args()
-    staged = stage(args.package, args.build)
+    staged = stage(args.package, args.build, args.overrides)
     if args.export_runtime:
         export_runtime(staged, args.export_runtime)
         print(args.export_runtime)

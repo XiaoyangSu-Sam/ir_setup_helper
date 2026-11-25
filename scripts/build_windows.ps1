@@ -53,8 +53,10 @@ try {
     $installerArgs = @("/DAppVersion=$version")
     $product = 'IRSetupHelper'
     if ($RegistrationPackage) {
-        $staging = & $Python -X utf8 scripts/stage_registration.py $RegistrationPackage build/windows
+        $staging = & $Python -X utf8 scripts/stage_registration.py $RegistrationPackage build/windows --overrides registration
         if ($LASTEXITCODE -ne 0 -or !$staging) { throw 'Could not verify and stage the registration assistant.' }
+        & (Join-Path $staging 'runtime/node/node.exe') --test tests/registration/eligibility.test.mjs
+        if ($LASTEXITCODE -ne 0) { throw 'Registration tests failed.' }
         $installerArgs += "/DRegistrationRoot=$staging"
         $product = 'IRacingTools'
     }

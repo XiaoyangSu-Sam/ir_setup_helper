@@ -4,7 +4,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from scripts.stage_registration import REQUIRED, export_runtime, stage
+from scripts.stage_registration import PROJECT_OVERRIDES, REQUIRED, export_runtime, stage
 
 
 def registration_archive(path, private_file=False, corrupted=False):
@@ -48,3 +48,20 @@ def test_registration_package_rejects_private_or_changed_files(tmp_path, private
     registration_archive(package, private_file=private_file, corrupted=corrupted)
     with pytest.raises(ValueError, match=message):
         stage(package, tmp_path / "build")
+
+
+def test_project_registration_overrides_are_allowlisted(tmp_path):
+    package = tmp_path / "share.zip"
+    registration_archive(package)
+    overrides = tmp_path / "overrides"
+    for name in PROJECT_OVERRIDES:
+        file = overrides / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(b"project version")
+    (overrides / "server.mjs").write_bytes(b"unexpected override")
+    (overrides / "access-token.txt").write_bytes(b"unrelated file")
+    result = stage(package, tmp_path / "build", overrides)
+    for name in PROJECT_OVERRIDES:
+        assert (result / name).read_bytes() == b"project version"
+    assert (result / "server.mjs").read_bytes() == b"fixture"
+    assert not (result / "access-token.txt").exists()
