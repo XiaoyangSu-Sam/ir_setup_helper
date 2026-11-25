@@ -110,6 +110,11 @@ test('a series-only draft can read the current selected car without completing t
   assert.equal(eligibility.status, 'met');
 });
 
+test('old drafts using the official calendar name still match the actual Spa series', () => {
+  const {eligibility} = check({rows: [license, trackOwned, needsCar]}, {series: '992 Endurance Cup'});
+  assert.equal(eligibility.car.status, 'missing');
+});
+
 test('a wrong page, missing panel, wrong venue or conflicting evidence stays unknown', () => {
   assert.equal(check({path: '/series-insights', rows: [license, trackOwned, carOwned]}).eligibility.status, 'unknown');
   assert.equal(check({shownSeries: 'Other Series', rows: [license, trackOwned, carOwned]}).eligibility.status, 'unknown');

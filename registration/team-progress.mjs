@@ -1,6 +1,9 @@
 // Read-only observations. These are deliberately not registration receipts.
 const clean=value=>String(value??'').replace(/\ufffc/g,'').replace(/\s+/g,' ').trim();
-const seriesName=value=>clean(value).replace(/Nürburgring/g,'Nurburgring');
+function seriesName(value) {
+  const name = clean(value).replace(/Nürburgring/g, 'Nurburgring');
+  return name === '992 Endurance Cup' ? 'Creventic 992 Endurance Cup' : name;
+}
 
 const key = value => clean(value).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 const purchase = /(?:you need to )?purchase the content licenses? for (.+)/i;
