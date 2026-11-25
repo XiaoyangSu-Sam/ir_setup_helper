@@ -37,7 +37,21 @@ def test_units_and_natural_language_ambiguity():
     assert suggest_symptoms("没有推头") == []
     assert suggest_symptoms("基本上想带着速度的入弯都会推头") == ['入弯推头']
     assert suggest_symptoms("高速弯车尾一直滑") == ["高速车尾不稳"]
+    assert suggest_symptoms("高速弯又推头又甩尾") == ["高速不放心"]
     assert len(suggest_symptoms("弯中推头，给油屁股就滑")) == 2
+
+
+@pytest.mark.parametrize("symptom", ["高速推头", "高速车尾不稳", "高速不放心"])
+def test_aero_trial_guide_explains_where_and_how_without_suggesting_unverified_values(symptom):
+    result = recommend(context(dry_adjustable=True), symptom, "", "我说的连续弯", mode="凭感觉")
+    guide = result["trial_guide"]
+    assert result["target"] is None
+    assert guide["reported_corner"] == "我说的连续弯"
+    assert "Kesselchen" in guide["primary"]
+    assert "Schwedenkreuz" in guide["cross_check"]
+    assert "推头" in guide["observe"] and "反打" in guide["observe"]
+    assert "Active Reset" in "".join(guide["steps"])
+    assert any(url.endswith("#page=13") for _, url in guide["sources"])
 
 
 def example(**kwargs):

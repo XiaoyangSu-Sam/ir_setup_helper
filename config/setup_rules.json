@@ -1,11 +1,59 @@
 {
   "schema_version": 1,
   "car": "ferrari296gt3",
+  "track_id": "262",
   "source": "https://s100.iracing.com/wp-content/uploads/2024/06/Ferrari-296-GT3-V4.pdf",
   "source_note": "官方手册 2024-06 版。原理参考，不代表已核实当前游戏的参数范围。",
+  "trial_protocol": {
+    "steps": [
+      "用 iRacing 干地 Test Drive，载入适用的官方耐力基准 A，在 Garage 确认 Passed Tech。暖胎后，以能重复的速度和路线跑同一段，记下入弯、弯中或出弯哪个阶段出现问题。",
+      "做数值实验时，B 只改方案给出的一个参数。每个设置先在 Garage 确认 Passed Tech；保持相近起始油量、暖胎程度、赛道温度和驾驶输入，在清洁空气中比较。",
+      "B 跑过后回到 A，用相同方法复测。手感反复出现才有依据；两者难以分辨就保留 A。比较圈速时每组至少三圈可比有效圈，同时记下大修正和出界。耐力赛选定设置前，按实际比赛油量分别复查满段起步和接近进站时的手感。",
+      "Active Reset 可用来重复同一套设置。改完设置后旧快照会恢复原设置；每套都重新暖胎并在同一位置存新快照。"
+    ],
+    "sources": [
+      ["iRacing · 逐项测试并找自己的调教", "https://www.iracing.com/does-anyone-have-a-setup-i-can-use/"],
+      ["iRacing · Active Reset 使用说明", "https://support.iracing.com/support/solutions/articles/31000168816-how-to-use-active-reset"],
+      ["NLS · 纽北弯道地图", "https://teilnehmer.vln.de/download.php?file=onb%2F2023-09-23%2FNLS+2023+-+BRIEFING+NOTES.pdf#page=18"]
+    ]
+  },
+  "trial_guides": {
+    "aero": {
+      "manual_pages": [13, 18, 22],
+      "primary": "Kesselchen。Bergwerk 后的上坡高速段，挑一段能保持相近速度和油门的弧线，避开坡顶和路肩。观察方向打进去后，车是否能沿熟悉的路线走。",
+      "cross_check": "Schwedenkreuz 用平时能稳过的节奏复查高速车尾。经过坡顶、突然收油或压路肩才出现的不稳单独记录。Döttinger Höhe 在相近的 Galgenkopf 出弯速度下，复查同一标记点的直线速度。",
+      "observe": "速度和路线相近时，方向越打越多、车头仍往外跑，记为推头；车尾往外走、需要反打或连续修方向，记为车尾不稳。已经需要反打时就回退到基准。",
+      "decision": "保留 Garage 里的前后静态车高设定。加 Rear Wing Angle 通常让气动平衡后移，更偏推头；减小则相反，同时损失总下压力。若两边已核实可用的候选值分别反复出现推头和车尾不稳，在中间挑一个顺手的可用值再复测；长距离优先选能保持路线、修正少的一档。只试到一侧时，可先比较 A 和 B，保留更稳定的那个。",
+      "with_data": "距离对齐后，先看同一弯段的速度、方向和油门。若有可信动态车高，可在 Aero Balance Calculator 分别估算弯中与出弯的 % Front downforce；尾翼与车高的搭配留到单独一轮。"
+    },
+    "front_arb": {
+      "manual_pages": [14, 22],
+      "primary": "GP 左右连续弯。先看第一个左弯，保持相近入弯速度和刹车释放，观察到弯心时是否还需要加方向。",
+      "cross_check": "接着观察同一组弯的右向转换，再到 Kesselchen 复查高速支撑。",
+      "observe": "记录车头是否更容易保持弯中路线、切换方向后有几次修正、车尾是否开始摆动。压到路肩的圈单独记。",
+      "decision": "弯中更容易维持路线，且连续变向与高速的修正没有增加，才保留试调。否则回到基准。",
+      "with_data": "先按距离比较相近速度下的刹车释放和弯中方向输入，再看两次方向转换的变化。"
+    },
+    "front_toe": {
+      "manual_pages": [14],
+      "primary": "GP 左右连续弯的第一个左弯。用同一转向点、相近速度和刹车释放，感受方向盘刚开始转动车头跟得有多快。",
+      "cross_check": "用后一弯复查连续变向，再到 Döttinger Höhe 复查直行时需要几次修正。",
+      "observe": "记下第一下转向是否需要补一把，之后车头是否仍然容易放准位置，直线是否更频繁修方向。",
+      "decision": "入弯反应更容易预测，同时直线与变向依然轻松，才保留试调。长距离再检查轮胎表现。",
+      "with_data": "对齐入弯点看速度、刹车与方向输入。有横摆通道时，可比较第一次转向后车身开始转动的时机。"
+    },
+    "tc": {
+      "manual_pages": [15],
+      "primary": "Bergwerk。找方向还没完全回正、刚开始渐进加油的阶段，以相近弯心速度、档位和给油节奏试。",
+      "cross_check": "在 Galgenkopf 出弯复查，比较上 Döttinger Höhe 后同一标记点的速度。",
+      "observe": "记下车尾是否还需要修正、TC 指示是否频繁亮起、油门逐步打开时加速是否连贯。",
+      "decision": "车尾更容易控制，且出弯加速没有明显损失时才保留。若干预更频繁但效果不明显，回到基准。",
+      "with_data": "对齐弯后同一距离，比较油门开始上升的位置、方向修正和速度。有 TC 通道或灯号记录时，再复核介入时机。"
+    }
+  },
   "rules": [
     {
-      "id": "front_response", "symptoms": ["入弯推头", "弯中推头"],
+      "id": "front_response", "symptoms": ["入弯推头", "弯中推头"], "trial_guide": "front_arb",
       "parameter": "Front ARB blades", "path": "Chassis.FrontBrakesLights.ArbBlades",
       "direction": "降低前防倾杆叶片角度作为单变量试调，按工具给出的目标值执行，其他设置保持基准。",
       "sign": -1, "source_page": 14,
@@ -14,7 +62,7 @@
       "verify": "保持相近入弯速度和刹车释放，比较弯心路线维持、方向输入与出弯速度；同时记录是否出现新的车尾不稳。"
     },
     {
-      "id": "turn_in_response", "symptoms": ["入弯迟钝"],
+      "id": "turn_in_response", "symptoms": ["入弯迟钝"], "trial_guide": "front_toe",
       "parameter": "Front Total Toe-In", "path": "Chassis.FrontBrakesLights.TotalToeIn",
       "direction": "若问题是初始转向响应，考虑减少 Front Total Toe-In（更偏外束）；先排除入弯速度及刹车释放差异。",
       "sign": -1, "source_page": 14,
@@ -23,7 +71,7 @@
       "verify": "选择同一入弯，保持相近速度和刹车释放，比较车头响应；再检查长直线和连续弯。"
     },
     {
-      "id": "fast_rear_stability", "symptoms": ["高速车尾不稳"],
+      "id": "fast_rear_stability", "symptoms": ["高速车尾不稳"], "trial_guide": "aero",
       "parameter": "Rear Wing Angle", "path": "Chassis.Rear.RearWingAngle",
       "direction": "若平整高速弯持续缺少车尾信心，可把增加尾翼作为小幅实验方向；先检查是否仅发生在触底或压路肩时。",
       "sign": 1, "source_page": 13,
@@ -32,7 +80,7 @@
       "verify": "用同一高速弯和直线比较信心、修正和速度；没有动态车高记录时，气动平台仍标为未验证。"
     },
     {
-      "id": "fast_understeer", "symptoms": ["高速推头"],
+      "id": "fast_understeer", "symptoms": ["高速推头"], "trial_guide": "aero",
       "parameter": "Rear Wing Angle", "path": "Chassis.Rear.RearWingAngle",
       "direction": "把减小尾翼作为有条件的候选实验；先检查是否超速入弯、前端触底或已有车尾不稳。",
       "sign": -1, "source_page": 22,
@@ -41,7 +89,7 @@
       "verify": "同时复查弯中转向、车尾可控性和高速通过速度，不仅看直线极速。"
     },
     {
-      "id": "exit_control", "symptoms": ["出弯不稳"],
+      "id": "exit_control", "symptoms": ["出弯不稳"], "trial_guide": "tc",
       "parameter": "Traction Control", "path": "Chassis.InCarAdjustments.TcSetting",
       "direction": "增加 TC 干预作为单变量试调，按工具给出的目标值执行，其他设置保持基准。",
       "sign": 1, "source_page": 15,
@@ -50,7 +98,7 @@
       "verify": "在相同弯道比较油门上升、方向修正和出弯后速度，记录是否更容易连续稳定驾驶。"
     },
     {
-      "id": "high_speed_review", "symptoms": ["高速不放心"],
+      "id": "high_speed_review", "symptoms": ["高速不放心"], "trial_guide": "aero",
       "parameter": "Aero balance / Rear Wing", "path": "Chassis.Rear.RearWingAngle",
       "direction": "先检查动态车高和 Aero Balance Calculator，区分推头、车尾不稳及触底；本轮不直接改变尾翼。",
       "sign": 0, "source_page": 13,

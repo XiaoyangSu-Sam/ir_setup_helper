@@ -68,6 +68,16 @@ def parameter_number(value, parameter: str) -> float | None:
     return float(match[1])
 
 
+def trial_guide(config: dict, rule: dict, corner: str) -> dict:
+    guide = config["trial_guides"][rule["trial_guide"]]
+    protocol = config["trial_protocol"]
+    return {
+        **guide, "reported_corner": corner.strip(), "steps": protocol["steps"],
+        "sources": [[f"Ferrari 296 GT3 官方手册第 {page} 页", f"{config['source']}#page={page}"]
+                    for page in guide["manual_pages"]] + protocol["sources"],
+    }
+
+
 def recommend(meta: dict, symptom: str, feeling: str, corner: str,
               constraints: dict | None = None, facts: list[str] | None = None, mode: str = "感觉 + 数据") -> dict:
     config = load_rules()
@@ -96,6 +106,7 @@ def recommend(meta: dict, symptom: str, feeling: str, corner: str,
         "source_note": config["source_note"], "build": meta["build"],
         "status": "待试跑", "numeric_note": "已核实本版本可选值" if target is not None else "未给数值：可选档位未核实，或当前值已到边界。",
         "parameter_knowledge": parameter_info(rule["parameter"]), "interactions": interactions(rule["parameter"]),
+        "trial_guide": trial_guide(config, rule, corner),
         "certainty": "手册支持参数作用方向；本次问题的原因及改善效果尚未验证。",
     }
 

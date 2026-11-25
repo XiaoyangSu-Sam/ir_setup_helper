@@ -29,10 +29,14 @@ def suggest_symptoms(text: str) -> list[str]:
             continue
         push = any(x in sentence for x in ("推头", "转不过", "不肯转", "不肯进弯"))
         loose = any(x in sentence for x in ("甩尾", "车尾滑", "车尾一直滑", "车尾不稳", "屁股滑", "屁股就滑"))
-        if "高速" in sentence and push:
+        if "高速" in sentence and push and loose:
+            hints.append("高速不放心")
+        elif "高速" in sentence and push:
             hints.append("高速推头")
         elif "高速" in sentence and loose:
             hints.append("高速车尾不稳")
+        elif "高速" in sentence and any(x in sentence for x in ("不放心", "没信心")):
+            hints.append("高速不放心")
         elif any(x in sentence for x in ("出弯", "给油", "加油")) and loose:
             hints.append("出弯不稳")
         elif push and any(x in sentence for x in ('入弯', '进弯', '拖刹')):

@@ -56,12 +56,15 @@ def test_candidate_download_reimports_through_uploader(make_ibt, tmp_path, monke
     def capture(label, data, *args, **kwargs):
         if kwargs.get("file_name") == "setup-candidate.json":
             downloads["candidate"] = data
+        elif kwargs.get("file_name") == "setup-experiment.txt":
+            downloads["card"] = data
         return original(label, data, *args, **kwargs)
 
     monkeypatch.setattr(st, "download_button", capture)
     next(b for b in app.button if b.label == "给我一个调整方案").click().run()
     assert not app.exception, app.exception
     assert any(b.proto.label == "下载可重新导入的设置快照" for b in app.download_button)
+    assert "GP 左右连续弯" in downloads["card"] and "Active Reset" in downloads["card"]
     exported = json.loads(downloads["candidate"])
     baseline = parse_export(source, "ir_suggest.htm", exported["car"], exported["track_id"], exported["track"])
     expected = {**baseline["setup_flat"], "Chassis.FrontBrakesLights.ArbBlades": "30 degrees"}
@@ -146,6 +149,7 @@ def test_feeling_plan_automatically_reads_settings_and_feedback(make_ibt, tmp_pa
     assert not app.exception
     next(r for r in app.radio if r.label == "工作区").set_value("试跑验证").run()
     no_engineering_form(app)
+    assert any("GP 左右连续弯" in m.value for m in app.markdown)
     next(s for s in app.selectbox if s.label == "这次主观感觉").set_value("感觉改善")
     next(b for b in app.button if b.label == "保存手感反馈").click().run()
     assert not app.exception
@@ -170,6 +174,15 @@ def test_tool_owns_missing_parameter_knowledge(make_ibt, tmp_path, monkeypatch):
     assert any("无需你操作" in w.value for w in app.warning)
     assert not any(b.label == "保存这个方案" for b in app.button)
     no_engineering_form(app)
+
+
+def test_aero_practice_is_available_with_no_setup_file_or_telemetry(tmp_path, monkeypatch):
+    app = open_app(tmp_path / "aero-guide-only", monkeypatch)
+    next(t for t in app.text_area if t.label == "保留我的原话").set_value("高速不放心").run()
+    assert not app.exception
+    assert any("Kesselchen" in m.value for m in app.markdown)
+    assert any("Active Reset" in m.value for m in app.markdown)
+    assert not any(b.label == "保存这个方案" for b in app.button)
 
 
 def test_changing_problem_invalidates_draft(make_ibt, tmp_path, monkeypatch):

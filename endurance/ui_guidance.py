@@ -5,7 +5,7 @@ import streamlit as st
 
 from endurance.analysis import pace_summary
 from endurance.knowledge import (compare_examples, knowledge, suggest_symptoms)
-from endurance.rules import load_rules, recommend
+from endurance.rules import load_rules, recommend, trial_guide
 from endurance.automatic import automatic_plan, choose_setup, settings_fingerprint
 from endurance.live_setup import read_live_setup
 from endurance.ui_baseline import file_baseline
@@ -22,6 +22,25 @@ def current_game_setup():
     return read_live_setup()
 
 
+def trial_lines(guide, mode):
+    details = [("主测弯段", guide["primary"]), ("复核弯段", guide["cross_check"]),
+               ("驾驶时留意", guide["observe"]), ("怎样选回自己的设置", guide["decision"])]
+    if mode != "凭感觉":
+        details.append(("有遥测时", guide["with_data"]))
+    return details
+
+
+def render_trial_guide(guide, mode, *, expanded=False):
+    with st.expander("试跑指南 · 在哪试、怎么判断", expanded=expanded):
+        if guide["reported_corner"]:
+            st.text("你反馈的位置 · " + guide["reported_corner"])
+            st.caption("如果那里能稳定复现，也可以用相同方法复测。")
+        for label, advice in trial_lines(guide, mode):
+            st.markdown(f"**{label}** · {advice}")
+        st.markdown("\n".join(f"{i}. {step}" for i, step in enumerate(guide["steps"], start=1)))
+        st.markdown(" · ".join(f"[{label}]({url})" for label, url in guide["sources"]))
+
+
 def render_guidance(store, current, car, track, profile, mode):
     st.subheader("说说哪里不好开")
     feeling = st.text_area("保留我的原话", value=profile.get("feeling", ""),
@@ -34,6 +53,8 @@ def render_guidance(store, current, car, track, profile, mode):
     if len(hints) > 1 and selected == "按我的描述判断":
         st.info("描述中有多个问题，先选这次最想解决的一项。")
     corner = st.text_input("发生在哪（可留空）", placeholder="弯名、快弯、连续弯都可以")
+    config = load_rules()
+    rule = next((r for r in config["rules"] if symptom in r["symptoms"]), None)
     source_mode = st.radio("设置来源", ["文件基准（无需启动游戏）", "游戏实时读取（可选）"], horizontal=True)
     if source_mode == "文件基准（无需启动游戏）":
         meta, source = file_baseline(store, current, car, track)
@@ -48,6 +69,8 @@ def render_guidance(store, current, car, track, profile, mode):
         else:
             st.success("已读取游戏设置；车型、布局和版本已识别。")
     if meta is None:
+        if rule and car == config["car"] and str(track[0]) == config["track_id"]:
+            render_trial_guide(trial_guide(config, rule, corner), mode, expanded=True)
         return
     if source == "file":
         st.success(f"已读取文件基准：{meta.get('source_name', '设置快照')}。可离线使用。")
@@ -73,7 +96,13 @@ def render_guidance(store, current, car, track, profile, mode):
     if not rec["available"]:
         st.info(rec["reason"])
         return
-    rule = next(r for r in load_rules()["rules"] if symptom in r["symptoms"])
+    guide = rec["trial_guide"]
+    if rule["sign"]:
+        st.caption("试跑主测 · " + guide["primary"])
+    render_trial_guide(guide, mode, expanded=not rule["sign"])
+    if not rule["sign"]:
+        st.info("先按指南跑官方基准，确认是哪种手感，再选对应的问题生成数值方案。")
+        return
     signature = hashlib.sha256(json.dumps([settings_fingerprint(meta), symptom, feeling, corner, mode], ensure_ascii=False).encode()).hexdigest()
     key = "automatic_draft"
     if st.session_state.get(key, {}).get("signature") != signature:
@@ -104,9 +133,6 @@ def render_guidance(store, current, car, track, profile, mode):
             st.info('这是试调候选：历史参数经过兼容性复核，但当前版本的效果尚未验证。')
         if source == "file":
             st.caption("这是对所选文件基准的调整草案；应用时从这份基准出发。离线生成无需连接游戏。")
-        with st.expander("怎么试跑和对比"):
-            st.write("保存方案后，用原值和目标值分别试跑，尽量保持相同油量和干地条件。确认 Garage 显示通过后再开车。")
-            st.write("每组录下至少三圈有效圈。助手会尝试自动配对；打开「试跑验证」可查看调校计时墙，也可以单独记录手感。")
         with st.expander("为什么这样改，以及工具检查了什么"):
             st.write(rec["hypothesis"])
             st.write("可能的代价：" + rec["risk"])
@@ -129,6 +155,12 @@ def render_guidance(store, current, car, track, profile, mode):
                 f"调整：{plan['parameter']} {plan['current']:g} → {plan['target']:g} {plan['unit']}\n"
                 f"其他参数保持基准。\n回退：{plan['rollback']}\n观察：{rec['verification']}\n"
                 "状态：试调候选；当前效果未验证；游戏 Tech 结果未自动接通。\n")
+        card += "\n试跑指南\n"
+        if guide["reported_corner"]:
+            card += "你反馈的位置 · " + guide["reported_corner"] + "\n"
+        card += "\n".join(f"{label} · {advice}" for label, advice in trial_lines(guide, mode)) + "\n"
+        card += "\n".join(f"{i}. {step}" for i, step in enumerate(guide["steps"], start=1)) + "\n"
+        card += "\n".join(f"{label} · {url}" for label, url in guide["sources"]) + "\n"
         st.download_button('下载本轮调整卡', card, file_name='setup-experiment.txt', mime='text/plain')
         try:
             snapshot = export_candidate(meta, plan)
@@ -198,6 +230,9 @@ def render_knowledge(store, current, car, track):
 
 def subjective_validation(store, exp):
     """Subjective feedback never becomes telemetry-proven improvement."""
+    guide = (exp.get("recommendation") or {}).get("trial_guide")
+    if guide:
+        render_trial_guide(guide, exp.get("mode", "感觉 + 数据"))
     with st.expander("只凭手感记录试跑（无需遥测）", expanded=not exp.get("before_records")):
         with st.form(f"subjective:{exp['id']}"):
             verdict = st.selectbox("这次主观感觉", ["还没试跑", "感觉改善", "感觉恶化", "没有明显差别", "说不清"])
