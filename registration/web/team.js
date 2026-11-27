@@ -11,10 +11,158 @@
   let revision=null;
   let dirty=false;
   let catalog,directory,members=null,memberSelection=false;
+  let calendarDay='';
   const el=id=>document.getElementById(id);
+  const todayFormatter=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Toronto',year:'numeric',month:'2-digit',day:'2-digit'});
+  const today=()=>todayFormatter.format(new Date());
+  const weekdays=['周一','周二','周三','周四','周五','周六','周日'];
+  const trackNames=[
+    [/spa-francorchamps/i,'斯帕-弗朗科尔尚赛道'],[/n[uü]rburgring|nordschleife/i,'纽博格林赛道'],
+    [/daytona/i,'代托纳国际赛道'],[/sebring/i,'赛百灵国际赛道'],[/watkins glen/i,'沃特金斯格伦国际赛道'],
+    [/road atlanta/i,'亚特兰大公路赛道'],[/road america/i,'美洲公路赛道'],[/circuit of the americas/i,'美洲赛道'],
+    [/laguna seca/i,'拉古纳塞卡赛道'],[/virginia international/i,'弗吉尼亚国际赛道'],[/indianapolis/i,'印第安纳波利斯赛道'],
+    [/mount panorama|bathurst/i,'巴瑟斯特全景山赛道'],[/suzuka/i,'铃鹿赛道'],[/fuji/i,'富士赛道'],[/okayama/i,'冈山国际赛道'],
+    [/motegi/i,'茂木赛道'],[/tsukuba/i,'筑波赛道'],[/silverstone/i,'银石赛道'],[/brands hatch/i,'布兰兹哈奇赛道'],
+    [/donington/i,'多宁顿公园赛道'],[/oulton park/i,'奥尔顿公园赛道'],[/snetterton/i,'斯内特顿赛道'],
+    [/imola|enzo e dino/i,'伊莫拉赛道'],[/monza/i,'蒙扎赛道'],[/mugello/i,'穆杰洛赛道'],
+    [/barcelona|catalunya/i,'巴塞罗那-加泰罗尼亚赛道'],[/aragon|aragón/i,'阿拉贡赛道'],
+    [/algarve|portim[aã]o/i,'阿尔加维国际赛道（波尔蒂芒）'],[/estoril/i,'埃斯托里尔赛道'],
+    [/le mans|sarthe/i,'勒芒萨尔特赛道'],[/magny-cours/i,'马尼库尔赛道'],[/dijon/i,'第戎赛道'],
+    [/zandvoort/i,'赞德沃特赛道'],[/zolder/i,'佐尔德赛道'],[/red bull ring/i,'红牛环赛道'],
+    [/interlagos|jos[eé] carlos pace/i,'因特拉格斯赛道'],[/hockenheim/i,'霍根海姆赛道'],
+    [/misano/i,'米萨诺赛道'],[/hungaroring/i,'匈牙利亨格罗林赛道'],[/jerez/i,'赫雷斯赛道'],
+    [/mosport|canadian tire/i,'加拿大轮胎赛车公园（莫斯波特）'],[/l[aá]nke/i,'兰克赛道'],
+    [/summit point/i,'萨米特角赛道']
+  ];
+
+  function chineseTrack(track){
+    const name=trackNames.find(([pattern])=>pattern.test(track||''))?.[1];
+    if(!name)return '';
+    const layout=track.match(/\bEndurance\b/i)?'耐力布局':/\bGrand Prix\b/i.test(track)?'大奖赛布局':
+      /\b(?:VLN|NLS)\b/i.test(track)?'VLN / NLS 布局':/\bRoad Course\b/i.test(track)?'公路布局':'';
+    return layout?name+' · '+layout:name;
+  }
+
+  function weatherText(weather){
+    if(weather?.kind==='dry')return {label:'干地设定',type:'dry'};
+    if(weather?.kind==='forecast'){
+      const rain=weather.rainChance>0||weather.beforeChance>0;
+      return {label:weather.rainChance>0?'降雨 '+weather.rainChance+'%':'场内降雨 0%',
+        detail:weather.beforeChance===null||weather.beforeChance===undefined?'':'赛前 '+weather.beforeChance+'%',
+        type:rain?'rain':'dry'};
+    }
+    if(weather?.kind==='dynamic')return {label:'动态天气',detail:'降雨概率待确认'};
+    return {label:'天气待确认'};
+  }
+
+  function chooseCalendarSlot(entry,slot){
+    const same=input('series').value===entry.name;
+    const value=slot?.startUtc||slot?.localStart||'';
+    choices(entry.name,value,same?input('car').value:'');
+    if(!same)input('declaration').value=entry.declaration||'unknown';
+    invalidate();
+    const feedback=el('calendar-feedback');
+    feedback.hidden=false;
+    feedback.textContent='已带入 '+entry.name+' · '+(slot?.startLabel||'待选场次')+'。保存准备单后可继续。';
+    el('calendar-agenda').querySelector('.calendar-slot[aria-pressed=true]')?.focus({preventScroll:true});
+  }
+
+  function renderCalendar(visible,selected){
+    const overview=el('week-calendar'), rail=el('calendar-days'), agenda=el('calendar-agenda');
+    const scope=el('calendar-selected-only');
+    if(!selected)scope.checked=false;
+    scope.disabled=!selected;
+    const events=scope.checked&&selected?[selected]:visible;
+    const days=weekdays.map((label,i)=>{
+      const date=new Date(Date.parse(catalog.monday+'T12:00Z')+i*86400000).toISOString().slice(0,10);
+      return {date,label,rows:[]};
+    });
+    const unscheduled=[];
+    for(const entry of events){
+      const slots=entry.slotDetails?.length?entry.slotDetails:(entry.slots||[]).map(localStart=>({localStart,startLabel:localStart.replace('T',' ')}));
+      if(!slots.length)unscheduled.push({entry});
+      for(const slot of slots){
+        const day=days.find(d=>d.date===slot.localStart.slice(0,10));
+        if(day)day.rows.push({entry,slot});
+      }
+    }
+    overview.hidden=false;
+    const date=today();
+    el('calendar-date').textContent='今天 '+date+' · 多伦多 · '+catalog.monday.slice(5)+' 至 '+catalog.sunday.slice(5);
+    rail.replaceChildren();
+    for(const day of days){
+      day.rows.sort((a,b)=>(a.slot.startUtc||a.slot.localStart).localeCompare(b.slot.startUtc||b.slot.localStart));
+      const button=element('button',undefined,'calendar-day');
+      button.type='button';
+      button.setAttribute('aria-pressed',String(calendarDay===day.date));
+      if(day.date===date)button.setAttribute('aria-current','date');
+      button.append(element('span',day.label),element('strong',day.date.slice(5).replace('-','/')),
+        element('small',day.rows.length+' 场'));
+      button.onclick=()=>{
+        calendarDay=calendarDay===day.date?'':day.date;
+        renderCalendar(visible,selected);
+        rail.children[days.indexOf(day)].focus();
+      };
+      rail.append(button);
+    }
+    el('calendar-all-days').hidden=!calendarDay;
+    el('calendar-agenda-title').textContent=calendarDay?calendarDay.slice(5)+' 场次':'整周场次';
+    agenda.replaceChildren();
+    const included=days.filter(day=>!calendarDay||day.date===calendarDay);
+    const pending=unscheduled.filter(({entry})=>!calendarDay||(entry.dates?.start<=calendarDay&&entry.dates?.end>=calendarDay));
+    if(!included.some(day=>day.rows.length)&&!pending.length){
+      agenda.append(element('p','这个范围暂未读到场次。试试显示整周或扫描这一周。','hint calendar-empty'));
+      return;
+    }
+    const table=element('table',undefined,'calendar-table');
+    table.setAttribute('aria-label','耐力赛开赛时间、赛道、报名窗口与天气');
+    const headings=table.createTHead().insertRow();
+    for(const label of ['开赛','赛事 / 赛道','报名窗口','天气']){
+      const th=element('th',label);th.scope='col';headings.append(th);
+    }
+    function rows(label,items){
+      const body=table.createTBody();
+      const heading=body.insertRow();heading.className='calendar-day-row';
+      const th=element('th',label);th.colSpan=4;th.scope='rowgroup';heading.append(th);
+      for(const {entry,slot} of items){
+        const row=body.insertRow();
+        const pick=element('button',slot?.localStart.slice(11,16)||'选赛事','calendar-slot');pick.type='button';
+        const value=slot?.startUtc||slot?.localStart||'';
+        pick.setAttribute('aria-pressed',String(input('series').value===entry.name&&input('localStart').value===value));
+        pick.setAttribute('aria-label',slot?('选择 '+entry.name+' '+slot.startLabel):('查看 '+entry.name));
+        pick.onclick=()=>chooseCalendarSlot(entry,slot);
+        row.insertCell().append(pick);
+        const race=row.insertCell();
+        race.append(element('strong',entry.name));
+        const translated=chineseTrack(entry.track);
+        race.append(element('small',translated||entry.track||'赛道待确认'));
+        if(translated)race.append(element('small',entry.track));
+        if(!slot&&(entry.dateLabel||entry.dates?.start))race.append(element('small',entry.dateLabel||entry.dates.start));
+        const registration=row.insertCell();
+        if(slot?.registrationOpenUtc){
+          const when=slot.registrationLabel.slice(0,10)===slot.localStart.slice(0,10)?slot.registrationLabel.slice(11,16):slot.registrationLabel.slice(5,16);
+          registration.append(element('strong',when+'–'+slot.localStart.slice(11,16)));
+          const now=Date.now();
+          const available=now>=Date.parse(slot.registrationOpenUtc)&&now<Date.parse(slot.startUtc);
+          registration.append(element('small',now>=Date.parse(slot.startUtc)?'已到开赛时间':slot.registrationKind==='estimated'?'预计 · 以客户端为准':available?'已到公布开放时间':'官方公布'));
+        }else registration.append(element('small',slot?'开放时间待确认':'场次时间待确认'));
+        const weather=weatherText(slot?.weather||entry.weather), conditions=row.insertCell();
+        conditions.append(element('span',weather.label,weather.type?'calendar-weather-'+weather.type:undefined));
+        if(weather.detail)conditions.append(element('small',weather.detail));
+      }
+    }
+    for(const day of included){
+      if(day.rows.length)rows(day.label+' '+day.date.slice(5)+(day.date===date?' · 今天':''),day.rows);
+    }
+    if(pending.length)rows('场次待公布或待核对',pending);
+    agenda.append(table);
+  }
   function invalidate(){dirty=true;inspect.disabled=true;el('team-open').disabled=true;progress.hidden=true;result.textContent='资料有修改，请先保存，再打开对应赛事。保存资料不会创建预约。';}
-  form.addEventListener('input',invalidate);
-  form.addEventListener('change',invalidate);
+  for(const event of ['input','change']){
+    form.addEventListener(event,e=>{
+      if(!['calendar-selected-only','endurance-search'].includes(e.target.id))invalidate();
+    });
+  }
   function showProgress(response){
     progress.replaceChildren();progress.hidden=false;
     const caption=document.createElement('p');
@@ -65,14 +213,14 @@
   }
   function choices(series,slot,car){
     const query=el('endurance-search').value.trim().toLocaleLowerCase();
-    const visible=catalog.series.filter(x=>(x.name+' '+(x.track||x.detail||'')).toLocaleLowerCase().includes(query));
-    options(input('series'),'选择本周系列',visible.map(x=>x.name),series,value=>{const x=catalog.series.find(s=>s.name===value);return value+(x?.track?' · '+x.track:'');});
+    const visible=catalog.series.filter(x=>(x.name+' '+(x.track||x.detail||'')+' '+chineseTrack(x.track)).toLocaleLowerCase().includes(query));
+    options(input('series'),'选择本周系列',visible.map(x=>x.name),series,value=>{const x=catalog.series.find(s=>s.name===value);return value+(x?.track?' · '+(chineseTrack(x.track)||x.track):'');});
     if(series&&catalog.series.some(x=>x.name===series)&&!visible.some(x=>x.name===series))input('series').selectedOptions[0].textContent=series+'（当前选择，不匹配搜索）';
     const entry=catalog.series.find(x=>x.name===series);
     const sessions=entry?.slotDetails||[];
     const values=sessions.length?sessions.map(x=>x.startUtc):entry?.slots||[];
     const selected=values.includes(slot)?slot:sessions.find(x=>x.localStart===slot)?.startUtc||slot;
-    options(input('localStart'),'暂不选择场次',values,selected,value=>{
+    options(input('localStart'),entry&&!values.length?'场次时间待公布或核对':'暂不选择场次',values,selected,value=>{
       const x=sessions.find(x=>x.startUtc===value);
       return x?(x.registrationLabel?(x.registrationKind==='confirmed'?'报名 ':'预计报名 ')+x.registrationLabel:'报名开放待确认')+' → 开赛 '+x.startLabel:'报名开放待确认 → 开赛 '+value.replace('T',' ');
     });
@@ -80,7 +228,12 @@
     const facts=el('race-detail');facts.replaceChildren();
     if(entry){
       const line=(label,value)=>{const p=document.createElement('p'),b=document.createElement('strong');b.textContent=label+'：';p.append(b,document.createTextNode(value));facts.append(p);};
-      line('比赛赛道 / 布局',entry.track||'待官方公布或客户端核对');
+      line('比赛赛道 / 布局',[chineseTrack(entry.track),entry.track].filter(Boolean).join(' · ')||'待官方公布或客户端核对');
+      const weather=weatherText(entry.weather);
+      line('天气 / 赛道条件',[weather.label,weather.detail].filter(Boolean).join(' · '));
+      if(entry.weather?.source){
+        const link=element('a','查看官方天气来源');link.href=entry.weather.source;link.target='_blank';link.rel='noopener noreferrer';facts.append(link);
+      }
       if(entry.specialEvent)line('特殊赛事日期',entry.dateLabel);
       line('Race duration · 比赛时长',entry.durationLabel||'待核对（未读到可靠的比赛时长）');
       if(entry.scheduleWeek)line('时长依据','官方赛程 '+entry.scheduleWeek+' 周次的 Duration 列；不包含练习和排位');
@@ -105,6 +258,8 @@
     if(catalog.specialError)add(catalog.specialError);
     add('扫描范围：已发布的官方赛季赛程、周报和特殊赛事日历。尚未公布的场次不会自动补时间；未包含私人房间和联赛。');
     const link=document.createElement('a');link.href='https://www.iracing.com/special-events/';link.target='_blank';link.rel='noopener noreferrer';link.textContent='查看官方特殊赛事日历';coverage.append(link);
+    el('calendar-feedback').hidden=true;
+    renderCalendar(visible,entry);
     showSlot();
   }
   function showSlot(){
@@ -114,15 +269,22 @@
     if(!slot){box.textContent='选择场次后，在这里查看多伦多当地的报名和开赛时间。';return;}
     for(const text of [(slot.registrationKind==='confirmed'?'报名开放：':'预计报名开放：')+(slot.registrationLabel||'待确认'),'场次开赛：'+slot.startLabel,'时区：多伦多 America/Toronto；EDT 夏令时 / EST 冬令时']){const p=document.createElement('p');p.textContent=text;box.append(p);}
   }
-  input('localStart').onchange=showSlot;
+  input('localStart').onchange=()=>choices(input('series').value,input('localStart').value,input('car').value);
   el('endurance-search').oninput=()=>choices(input('series').value,input('localStart').value,input('car').value);
+  el('calendar-selected-only').onchange=()=>choices(input('series').value,input('localStart').value,input('car').value);
+  el('calendar-all-days').onclick=()=>{
+    calendarDay='';
+    choices(input('series').value,input('localStart').value,input('car').value);
+    el('calendar-days').querySelector('button')?.focus();
+  };
   async function changeWeekend(){
     el('scan-feedback').textContent='日期已切换；点击“扫描这一周”更新官方资料。';
     fields.disabled=true;invalidate();
-    try{catalog=(await api('/api/team-options?weekend='+encodeURIComponent(input('weekend').value))).catalog;input('weekend').value=catalog.monday;choices('','','');}
+    try{catalog=(await api('/api/team-options?weekend='+encodeURIComponent(input('weekend').value))).catalog;calendarDay='';input('weekend').value=catalog.monday;choices('','','');}
     catch(e){result.textContent=e.message;}finally{fields.disabled=false;}
   }
   input('weekend').onchange=changeWeekend;
+  el('weekend-today').onclick=()=>{input('weekend').value=today();void changeWeekend();};
   for(const [id,days] of [['weekend-prev',-7],['weekend-next',7]])el(id).onclick=()=>{const date=new Date((input('weekend').value||catalog.monday)+'T12:00Z');date.setUTCDate(date.getUTCDate()+days);input('weekend').value=date.toISOString().slice(0,10);void changeWeekend();};
   function renderMembers(){
     const valid=members&&members.teamId===input('teamId').value&&members.teamName===input('teamName').value;
@@ -209,7 +371,7 @@
 
   async function read(){
     reload.disabled=true;fields.disabled=true;inspect.disabled=true;progress.hidden=true;
-    try{const [plan,validation]=await Promise.all([api('/api/team-plan'),api('/api/team-validation')]);const date=plan.weekend||plan.localStart?.slice(0,10);const opts=await api('/api/team-options'+(date?'?weekend='+encodeURIComponent(date):''));catalog=opts.catalog;directory=opts.directory;display(plan);await loadMembers();showValidation(validation);}
+    try{const [plan,validation]=await Promise.all([api('/api/team-plan'),api('/api/team-validation')]);const date=plan.series&&(plan.weekend||plan.localStart?.slice(0,10));const opts=await api('/api/team-options'+(date?'?weekend='+encodeURIComponent(date):''));catalog=opts.catalog;directory=opts.directory;display(plan);await loadMembers();showValidation(validation);}
     catch(error){result.textContent=error.message;}
     finally{fields.disabled=revision===null;reload.disabled=false;}
   }

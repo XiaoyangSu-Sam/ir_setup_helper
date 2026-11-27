@@ -29,7 +29,10 @@ OPTIONAL = {
     )
 }
 NON_RUNTIME = {"NativeBridge.cs", "启动报名助手.cmd", "新手使用说明.md"}
-PROJECT_OVERRIDES = ("special-events.mjs", "team-progress.mjs", "web/team.js")
+PROJECT_OVERRIDES = (
+    "season-catalog.mjs", "server.mjs", "special-events.mjs", "team-progress.mjs",
+    "web/index.html", "web/style.css", "web/team.js",
+)
 
 
 def stage(package: Path, build: Path, overrides: Path | None = None) -> Path:

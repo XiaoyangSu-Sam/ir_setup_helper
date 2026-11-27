@@ -58,10 +58,10 @@ def test_project_registration_overrides_are_allowlisted(tmp_path):
         file = overrides / name
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_bytes(b"project version")
-    (overrides / "server.mjs").write_bytes(b"unexpected override")
+    (overrides / "endurance.mjs").write_bytes(b"unexpected override")
     (overrides / "access-token.txt").write_bytes(b"unrelated file")
     result = stage(package, tmp_path / "build", overrides)
     for name in PROJECT_OVERRIDES:
         assert (result / name).read_bytes() == b"project version"
-    assert (result / "server.mjs").read_bytes() == b"fixture"
+    assert (result / "endurance.mjs").read_bytes() == b"fixture"
     assert not (result / "access-token.txt").exists()

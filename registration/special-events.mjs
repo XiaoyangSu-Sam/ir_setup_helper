@@ -1,5 +1,11 @@
-import {durationLabel} from './race-details.mjs';
+import {describeSlot,durationLabel} from './race-details.mjs';
 export const specialSource='https://www.iracing.com/special-events/';
+const spaAnnouncement='https://www.iracing.com/this-week-iracing-creventic-992-endurance-cup-special-event/';
+const spaName='Creventic 992 Endurance Cup';
+const spaTrack='Circuit de Spa-Francorchamps - Endurance';
+const spaCars=['Porsche 911 Cup (992.2)'];
+const spaDates={start:'2026-11-27',end:'2026-11-29'};
+const spaStarts=['2026-11-27T22:00:00Z','2026-11-28T07:00:00Z','2026-11-28T12:00:00Z','2026-11-28T16:00:00Z'];
 const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
 const plain=s=>s.replace(/<[^>]*>/g,' ').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const c=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n);return c>0&&c<=0x10ffff?String.fromCodePoint(c):'';}).replace(/&(?:amp|nbsp|ndash|mdash|uuml|Uuml);/g,x=>({'&amp;':'&','&nbsp;':' ','&ndash;':'–','&mdash;':'—','&uuml;':'ü','&Uuml;':'Ü'}[x])).replace(/\s+/g,' ').trim();
 export function eventDates(value){
@@ -40,21 +46,33 @@ export function parseSpecialEvents(html){
 export function includeSpecialEvents(catalog,calendar){
   const monday=catalog.monday||new Date(Date.parse(catalog.saturday+'T00:00Z')-5*86400000).toISOString().slice(0,10);
   const inWeekend=e=>e.dates&&e.dates.start<=catalog.sunday&&e.dates.end>=monday;
-  const matching=calendar.events.filter(inWeekend),series=[...catalog.series];
+  const matching=(calendar?.events||[]).filter(inWeekend),series=[...catalog.series];
   for(const e of matching.filter(e=>e.endurance)){
-    // The public calendar shortens the name of the November 2026 Spa event.
-    const spa992=e.name==='992 Endurance Cup'&&e.dates.start==='2026-11-27';
-    const name=spa992?'Creventic 992 Endurance Cup':e.name;
-    const track=e.track||(spa992?'Circuit de Spa-Francorchamps Endurance':'');
-    const cars=spa992?['Porsche 911 Cup (992.2)']:[];
+    if([spaName,'992 Endurance Cup'].includes(e.name)&&e.dates.start===spaDates.start)continue;
+    const {name,track}=e;
     if(series.some(s=>s.name===name))continue;
     const times=[...new Set([...e.description.matchAll(/\b(\d+(?:\.\d+)?)\s*[- ]\s*hours?\b/gi),...e.name.matchAll(/\b(\d+)\s*(?:hours?|hr|h)\b/gi)].map(m=>+m[1]*60))];
     const duration=times.length===1?{unit:'minutes',value:times[0],minutes:times[0],evidence:'官方特殊赛事说明'}:null;
     const labels=e.carLabel.split(/\s*\/\/\s*|\s*\\\\\s*/).filter(Boolean);
     const known=labels.length&&labels.every(x=>/GT[1-4]|GTP|HYP|LMP[23]|TCR|Touring|Porsche Cup|BMW M2/i.test(x));
-    series.push({name,track,cars,slots:[],slotDetails:[],duration,minutes:duration?.minutes??null,durationLabel:durationLabel(duration),durationSource:specialSource,classes:spa992?[{name:'Porsche Cup',cars}]:known?labels.map(name=>({name,cars:[]})):[],multiclass:spa992?false:known?labels.length>1:null,classBasis:spa992?'官方特殊赛事说明及当前客户端车辆名单':'官方特殊赛事车辆分类；实际车型和分组需客户端核对',teamRace:e.teamRace,declaration:'unknown',specialEvent:true,source:specialSource,carSource:specialSource,dateLabel:e.dateLabel,carLabel:e.carLabel,detail:`特殊赛事 · ${e.dateLabel} · ${track||'赛道待核对'} · 具体开赛和报名开放时间待客户端确认`});
+    series.push({name,track,cars:[],slots:[],slotDetails:[],duration,minutes:duration?.minutes??null,durationLabel:durationLabel(duration),durationSource:specialSource,classes:known?labels.map(name=>({name,cars:[]})):[],multiclass:known?labels.length>1:null,classBasis:'官方特殊赛事车辆分类；实际车型和分组需客户端核对',teamRace:e.teamRace,declaration:'unknown',specialEvent:true,source:specialSource,carSource:specialSource,dateLabel:e.dateLabel,dates:e.dates,carLabel:e.carLabel,detail:`特殊赛事 · ${e.dateLabel} · ${track||'赛道待核对'} · 具体开赛和报名开放时间待客户端确认`});
   }
-  return {...catalog,series,specialCalendar:{year:calendar.year,observedAt:calendar.observedAt,source:specialSource,total:calendar.events.length,matched:matching.filter(e=>e.endurance).length,other:matching.filter(e=>!e.endurance).map(e=>({name:e.name,dateLabel:e.dateLabel})),undated:calendar.events.filter(e=>!e.dates).map(e=>({name:e.name,dateLabel:e.dateLabel}))}};
+  // Exact UTC starts and the 60-minute window in the dated official announcement.
+  if(inWeekend({dates:spaDates})){
+    const index=series.findIndex(event=>event.name===spaName||event.name==='992 Endurance Cup');
+    const previous=series[index];
+    const slotDetails=spaStarts.map(start=>describeSlot(start,{registrationOpenUtc:new Date(Date.parse(start)-60*60000).toISOString()}));
+    const duration={unit:'minutes',value:720,minutes:720,evidence:'官方赛事公告'};
+    const event={...previous,name:spaName,track:spaTrack,cars:spaCars,slotDetails,slots:slotDetails.map(s=>s.localStart),
+      duration,minutes:720,durationLabel:durationLabel(duration),durationSource:spaAnnouncement,registrationSource:spaAnnouncement,
+      classes:[{name:'Porsche Cup',cars:spaCars}],multiclass:false,classBasis:'官方赛事公告',teamRace:true,minDrivers:2,maxDrivers:16,
+      declaration:'required',specialEvent:true,dates:spaDates,dateLabel:'2026-11-27 至 2026-11-29',
+      source:spaAnnouncement,carSource:spaAnnouncement,detail:spaTrack,
+      weather:previous?.weather?.kind&&previous.weather.kind!=='unknown'?previous.weather:{kind:'dynamic',source:spaAnnouncement}};
+    if(index<0)series.push(event);
+    else series[index]=event;
+  }
+  return {...catalog,series,specialCalendar:calendar?{year:calendar.year,observedAt:calendar.observedAt,source:specialSource,total:calendar.events.length,matched:matching.filter(e=>e.endurance).length,other:matching.filter(e=>!e.endurance).map(e=>({name:e.name,dateLabel:e.dateLabel})),undated:calendar.events.filter(e=>!e.dates).map(e=>({name:e.name,dateLabel:e.dateLabel}))}:null};
 }
 export async function fetchSpecialEvents(fetcher=fetch){
   const r=await fetcher(specialSource,{signal:AbortSignal.timeout(15000),redirect:'error'});

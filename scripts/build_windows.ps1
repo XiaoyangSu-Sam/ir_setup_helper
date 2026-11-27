@@ -57,6 +57,14 @@ try {
         if ($LASTEXITCODE -ne 0 -or !$staging) { throw 'Could not verify and stage the registration assistant.' }
         & (Join-Path $staging 'runtime/node/node.exe') --test tests/registration/eligibility.test.mjs
         if ($LASTEXITCODE -ne 0) { throw 'Registration tests failed.' }
+        $priorTestRuntime = $env:IR_REGISTRATION_TEST_RUNTIME
+        try {
+            $env:IR_REGISTRATION_TEST_RUNTIME = $staging
+            & (Join-Path $staging 'runtime/node/node.exe') --test tests/registration/calendar.test.mjs
+            if ($LASTEXITCODE -ne 0) { throw 'Registration calendar tests failed.' }
+        } finally {
+            $env:IR_REGISTRATION_TEST_RUNTIME = $priorTestRuntime
+        }
         $installerArgs += "/DRegistrationRoot=$staging"
         $product = 'IRacingTools'
     }
