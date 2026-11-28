@@ -9,6 +9,8 @@ using System.Windows.Forms;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 
 public class NodeInfo {
@@ -18,6 +20,7 @@ public class NodeInfo {
 public class UiSnapshot {
     public bool ok=true; public string observedAt,url,text,lockState; public List<NodeInfo> nodes;
     public long readDurationMs;
+    public object teamTarget;
 }
 public class NativeBridge : Form {
     Label status=new Label{Dock=DockStyle.Fill,Padding=new Padding(20),Text="原生连接已启动。仅执行控制台中明确安排的任务。"};
@@ -29,6 +32,10 @@ public class NativeBridge : Form {
     Process serverProcess;
     NotifyIcon tray; bool explicitExit=false;
     readonly object launchLock=new object();
+    string teamWizardUrl,teamWizardSeries,teamWizardTrack,teamWizardCar,teamWizardId;
+    DateTime teamWizardStart,teamWizardPendingUntil;
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint processId);
     CheckBox autoIracing=new CheckBox{Text="启动时打开 iRacing",AutoSize=true,Checked=true};
     CheckBox autoTailscale=new CheckBox{Text="启动时打开 Tailscale",AutoSize=true,Checked=true};
     Label startupStatus=new Label{Dock=DockStyle.Top,Height=85,Padding=new Padding(12),Text="正在检查启动设置…"};
@@ -209,19 +216,25 @@ public class NativeBridge : Form {
         if(!doc.TryGetCurrentPattern(TextPattern.Pattern,out v))throw new Exception("客户端未提供页面文字。");
         var text=(TextPattern)v; var rows=new List<NodeInfo>(); Walk(doc,-1,rows,text,0);
         var content=text.DocumentRange.GetText(150000);
-        return new UiSnapshot{observedAt=DateTime.UtcNow.ToString("o"),url=parsed.GetLeftPart(UriPartial.Path),text=content,nodes=rows,lockState=lockState,readDurationMs=watch.ElapsedMilliseconds};
+        ReadTeamSelection(rows,content);
+        var snapshot=new UiSnapshot{observedAt=DateTime.UtcNow.ToString("o"),url=parsed.GetLeftPart(UriPartial.Path),text=content,nodes=rows,lockState=lockState,readDurationMs=watch.ElapsedMilliseconds};
+        FindBoundTeamForm(snapshot);
+        return snapshot;
     }
     void Walk(AutomationElement e,int parent,List<NodeInfo> rows,TextPattern doc,int depth){
         if(rows.Count>=6000||depth>55)throw new Exception("控件树超出预期，停止而不是截断匹配。");
         var c=e.Current;int i=rows.Count;string t="",value="";object p;
         if(c.ControlType==ControlType.Button||c.ControlType==ControlType.Hyperlink||c.ControlType==ControlType.DataItem){try{t=doc.RangeFromChild(e).GetText(4000);}catch{}}
-        if((c.ControlType==ControlType.Hyperlink||c.ControlType==ControlType.ComboBox)&&e.TryGetCurrentPattern(ValuePattern.Pattern,out p))value=((ValuePattern)p).Current.Value;
+        if((c.ControlType==ControlType.Hyperlink||c.ControlType==ControlType.ComboBox||
+            (c.ControlType==ControlType.Edit&&c.Name=="Select a Team to Register"))&&e.TryGetCurrentPattern(ValuePattern.Pattern,out p))
+            value=((ValuePattern)p).Current.Value;
         var patterns=e.GetSupportedPatterns().Select(a=>a.ProgrammaticName).ToArray();
         rows.Add(new NodeInfo{index=i,parent=parent,name=c.Name,id=c.AutomationId,type=c.ControlType.ProgrammaticName,text=t,value=value,enabled=c.IsEnabled,invoke=patterns.Contains("InvokePatternIdentifiers.Pattern"),patterns=patterns,element=e});
         var walker=TreeWalker.ControlViewWalker;
         for(var child=walker.GetFirstChild(e);child!=null;child=walker.GetNextSibling(child))Walk(child,i,rows,doc,depth+1);
     }
     string Clean(string s){return System.Text.RegularExpressions.Regex.Replace((s??"").Replace("\ufffc",""),@"\s+"," ").Trim();}
+    string NormalizeName(string s){return new string(Clean(s).Normalize(NormalizationForm.FormD).Where(Char.IsLetterOrDigit).ToArray()).ToLowerInvariant();}
     NodeInfo Unique(UiSnapshot s,string name,string type){
         var items=s.nodes.Where(n=>n.type==type&&(Clean(n.text)==name||n.name==name)).ToList();
         if(items.Count!=1)throw new Exception("控件不唯一或未找到："+name+"（"+items.Count+"）。");return items[0];
@@ -277,11 +290,72 @@ public class NativeBridge : Form {
             throw new Exception("预约窗口在执行前发生变化。");
         return n;
     }
+    void ReadTeamSelection(List<NodeInfo> nodes,string content){
+        const string prompt="Select a Team to Register";
+        var fields=nodes.Where(n=>n.type=="ControlType.Edit"&&n.name==prompt).ToList();
+        if(fields.Count!=1||!String.IsNullOrWhiteSpace(fields[0].value))return;
+        // The current dropdown sometimes exposes its visible value only through document text.
+        var lines=content.Split('\n').Select(line=>Clean(Regex.Replace(line,@"\p{Co}",""))).Where(line=>line.Length>0).ToList();
+        var index=lines.IndexOf(prompt);
+        if(index>=0&&index==lines.LastIndexOf(prompt)&&index+1<lines.Count)fields[0].value=lines[index+1];
+    }
+    NodeInfo FindBoundTeamForm(UiSnapshot s){
+        if(s.url!=teamWizardUrl||DateTime.UtcNow>=teamWizardStart){teamWizardUrl=null;return null;}
+        var candidates=s.nodes.Where(n=>n.type=="ControlType.Window"&&n.name=="Go Racing"&&
+            (n.id??"").StartsWith("chakra-modal-")&&Descendants(s,n).Any(x=>x.name=="Team Registration")).ToList();
+        if(candidates.Count!=1){if(teamWizardId!=null)teamWizardUrl=null;return null;}
+        var root=candidates[0];
+        if(!Descendants(s,root).Any(n=>n.type=="ControlType.Text"&&Clean(n.name)==teamWizardCar))return null;
+        if(teamWizardId==null&&DateTime.UtcNow<teamWizardPendingUntil)teamWizardId=root.id;
+        if(root.id!=teamWizardId){teamWizardUrl=null;return null;}
+        s.teamTarget=new{startUtc=teamWizardStart.ToString("o"),series=teamWizardSeries,track=teamWizardTrack,car=teamWizardCar,windowId=root.id};
+        return root;
+    }
+    NodeInfo RequireOpenTeamRace(UiSnapshot s,List<NodeInfo> anchors,DateTime start){
+        if(anchors.Count<5||!anchors.Any(n=>Regex.IsMatch(n.name??"", @"^Team\s*\(\d+\s*[-–]\s*\d+\)$",RegexOptions.IgnoreCase))||
+           !anchors.Any(n=>Clean(n.name)=="Open Now")||!anchors.Any(n=>(n.name??"").StartsWith("Next Race @ ")))
+            throw new Exception("尚未核对车队赛、报名窗口及下一场。");
+        var next=anchors.First(n=>(n.name??"").StartsWith("Next Race @ "));
+        // The accessibility name can keep an old countdown even while the page text updates.
+        var lines=s.text.Split('\n').Select(Clean).ToList();
+        var first=lines.IndexOf(Clean(next.name));
+        var end=lines.FindIndex(first+1,line=>Regex.IsMatch(line,@"^Race Duration\b"));
+        if(first<0||end<0)throw new Exception("无法读取目标场次的实时倒计时。");
+        var timers=lines.Skip(first+1).Take(end-first-1)
+            .Select(line=>Regex.Match(line,@"^(\d{1,2}:\d{2}(:\d{2})?) Open Now$")).Where(match=>match.Success).ToList();
+        var now=DateTime.UtcNow;
+        double remaining=(start-now).TotalSeconds;
+        if(timers.Count!=1||Math.Abs(timers[0].Groups[1].Value.Split(':').Aggregate(0,(seconds,part)=>seconds*60+int.Parse(part))-remaining)>35)
+            throw new Exception("执行前倒计时已变化，未匹配目标场次。");
+        var clock=Regex.Match(s.text,@"\b\d{1,2}:\d{2}:\d{2}\s[AP]M\b");DateTime clockValue;
+        var zone=TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        if(!clock.Success||!DateTime.TryParseExact(clock.Value,"h:mm:ss tt",CultureInfo.InvariantCulture,DateTimeStyles.None,out clockValue))
+            throw new Exception("无法核对客户端时钟。");
+        var clockDiff=Math.Abs((clockValue.TimeOfDay-TimeZoneInfo.ConvertTimeFromUtc(now,zone).TimeOfDay).TotalSeconds);
+        if(Math.Min(clockDiff,86400-clockDiff)>35)throw new Exception("客户端时钟已停滞或时区不匹配。");
+        return next;
+    }
+    void OpenTeamPicker(NodeInfo node,DateTime deadline){
+        // The team's custom Edit exposes no Invoke or ExpandCollapse operation in the current UI.
+        node.element.SetFocus();
+        Invoke((Action)(()=>{
+            uint foregroundPid;
+            GetWindowThreadProcessId(GetForegroundWindow(),out foregroundPid);
+            if(DateTime.UtcNow>deadline||foregroundPid!=(uint)node.element.Current.ProcessId||
+               !Automation.Compare(AutomationElement.FocusedElement,node.element))
+                throw new Exception("选队输入框未取得焦点，请保持 iRacing 窗口可操作。");
+            SendKeys.SendWait("{DOWN}");
+        }));
+    }
     object TeamAction(Dictionary<string,object> req,DateTime deadline){
         Action click;
+        Action after=null;
         try{
             var start=DateTime.Parse((string)req["startUtc"],CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind).ToUniversalTime();
             var phase=(string)req["phase"];
+            var series=(string)req["series"];
+            var track=(string)req["track"];
+            var car=Clean((string)req["car"]);
             if(!new[]{"prepare","team","driver"}.Contains(phase)||DateTime.UtcNow>=start)
                 throw new Exception("目标预约时间已结束。");
             var s=Read();
@@ -289,30 +363,31 @@ public class NativeBridge : Form {
                 Regex.IsMatch(s.text,"disconnected|connection lost|failed to connect",RegexOptions.IgnoreCase))
                 throw new Exception("iRacing 当前页面不匹配预约。");
             var anchors=((System.Collections.IEnumerable)req["anchors"]).Cast<object>().Select(x=>TeamAnchor(s,x)).ToList();
-            if(anchors.Count<5||!anchors.Any(n=>Regex.IsMatch(n.name??"", @"^Team\s*\(\d+\s*[-–]\s*\d+\)$",RegexOptions.IgnoreCase))||
-               !anchors.Any(n=>Clean(n.name)=="Open Now")||!anchors.Any(n=>(n.name??"").StartsWith("Next Race @ ")))
-                throw new Exception("尚未核对车队赛、报名窗口及下一场。");
-            var next=anchors.First(n=>(n.name??"").StartsWith("Next Race @ "));
-            // The accessibility name can keep an old countdown even while the page text updates.
-            var lines=s.text.Split('\n').Select(Clean).ToList();
-            var first=lines.IndexOf(Clean(next.name));
-            var end=lines.FindIndex(first+1,line=>Regex.IsMatch(line,@"^Race Duration\b"));
-            if(first<0||end<0)throw new Exception("无法读取目标场次的实时倒计时。");
-            var timers=lines.Skip(first+1).Take(end-first-1)
-                .Select(line=>Regex.Match(line,@"^(\d{1,2}:\d{2}(:\d{2})?) Open Now$")).Where(match=>match.Success).ToList();
-            var now=DateTime.UtcNow;
-            double remaining=(start-now).TotalSeconds;
-            if(timers.Count!=1||Math.Abs(timers[0].Groups[1].Value.Split(':').Aggregate(0,(seconds,part)=>seconds*60+int.Parse(part))-remaining)>35)
-                throw new Exception("执行前倒计时已变化，未匹配目标场次。");
-            var clock=Regex.Match(s.text,@"\b\d{1,2}:\d{2}:\d{2}\s[AP]M\b");DateTime clockValue;
-            var zone=TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
-            if(!clock.Success||!DateTime.TryParseExact(clock.Value,"h:mm:ss tt",CultureInfo.InvariantCulture,DateTimeStyles.None,out clockValue))
-                throw new Exception("无法核对客户端时钟。");
-            var clockDiff=Math.Abs((clockValue.TimeOfDay-TimeZoneInfo.ConvertTimeFromUtc(now,zone).TimeOfDay).TotalSeconds);
-            if(Math.Min(clockDiff,86400-clockDiff)>35)throw new Exception("客户端时钟已停滞或时区不匹配。");
             var node=TeamAnchor(s,req["node"]);
             var label=Clean(node.text);
             if(label.Length==0)label=Clean(node.name);
+            var form=FindBoundTeamForm(s);
+            if(form!=null){
+                var within=Descendants(s,form);
+                if(teamWizardStart!=start||teamWizardSeries!=series||teamWizardTrack!=track||teamWizardCar!=car||!within.Contains(node)||!anchors.Contains(form)||
+                   anchors.Any(n=>n!=form&&!within.Contains(n)))
+                    throw new Exception("操作与已核对的报名窗口不匹配。");
+            }else{
+                var next=RequireOpenTeamRace(s,anchors,start);
+                var normalizedSeries=NormalizeName(series);
+                if(normalizedSeries.Length==0||!anchors.Any(n=>n.type=="ControlType.Text"&&NormalizeName(n.name)==normalizedSeries)||
+                   NormalizeName(next.name.Substring("Next Race @ ".Length))!=NormalizeName(track))
+                    throw new Exception("客户端系列或赛道布局与预约不匹配。");
+                var raceEnd=s.nodes.Skip(next.index).FirstOrDefault(n=>Clean(n.name)=="Race Duration");
+                var sessions=s.nodes.Skip(next.index).FirstOrDefault(n=>Clean(n.name)=="Available Sessions");
+                var opensRace=label=="Register"&&raceEnd!=null&&sessions!=null&&node.index>raceEnd.index&&node.index<sessions.index;
+                var opensAfterCar=Regex.Replace(label,@"\p{Co}","").Trim()=="Continue"&&node.type=="ControlType.Hyperlink"&&
+                    node.parent>=0&&s.nodes[node.parent].id=="select-car-modal-modal-dialog"&&anchors.Any(n=>Clean(n.name)==car);
+                if(phase=="prepare"&&car.Length>0&&(opensRace||opensAfterCar))after=()=>{
+                    teamWizardUrl=s.url;teamWizardSeries=series;teamWizardTrack=track;teamWizardCar=car;teamWizardStart=start;teamWizardId=null;
+                    teamWizardPendingUntil=DateTime.UtcNow.AddSeconds(45);
+                };
+            }
             if((phase=="team"&&label!="Register Team")||(phase=="driver"&&label!="Register as Driver")||
                (phase=="prepare"&&(label=="Register Team"||label=="Register as Driver")))
                 throw new Exception("当前动作与已授权步骤不一致。");
@@ -328,10 +403,13 @@ public class NativeBridge : Form {
             }else if(phase=="prepare"&&node.element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out pattern)){
                 var select=(SelectionItemPattern)pattern;
                 click=()=>select.Select();
+            }else if(phase=="prepare"&&form!=null&&node.type=="ControlType.Edit"&&node.name=="Select a Team to Register"){
+                click=()=>OpenTeamPicker(node,deadline);
             }else throw new Exception("客户端控件没有可安全使用的原生操作。");
         }catch(Exception e){return new {invoked=false,reason=e.Message};}
         // Only failures before this boundary are safe to retry.
         click();
+        if(after!=null)after();
         return new {invoked=true};
     }
     object ExecuteRequest(Dictionary<string,object> req,DateTime deadline){

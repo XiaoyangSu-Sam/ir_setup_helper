@@ -87,21 +87,51 @@ export function raceContext(raw,job,now=Date.now(),requireOpen=true){
   return {raw,nodes,register,anchors};
 }
 
-function carChoice(context){
-  const nodes=context.nodes;
+function selectedCar(context){
+  const {nodes}=context;
+  if(context.formRoot){
+    const scope=descended(nodes,context.formRoot);
+    const setup=heading(scope,'Team Setup');
+    return heading(scope.filter(n=>n.index>(setup?.index??-1)),context.raw.teamTarget.car);
+  }
   const chosen=heading(nodes,'Selected Car');
   const favorite=one(nodes.filter(n=>n.id?.startsWith('favorite_cars-')));
   if(chosen&&favorite){
-    const [inner,menu,card]=ancestors(nodes,favorite);
+    const card=ancestors(nodes,favorite)[2];
     if(card&&descended(nodes,card).includes(chosen)){
-      return {current:one(nodes.filter(n=>n!==chosen&&n.parent===card.index&&type(n,'Text'))),
-        menu:one(nodes.filter(n=>n.parent===menu.index&&n.id?.startsWith('menu-button-')&&action(n)))};
+      return one(nodes.filter(n=>n!==chosen&&n.parent===card.index&&type(n,'Text')));
     }
   }
-  const none=heading(nodes,'No Car Selected...');
-  if(!none)return {};
-  const menu=one(nodes.filter(n=>n.index>none.index&&n.index<none.index+7&&n.id?.startsWith('menu-button-')&&action(n)));
-  return {current:none,menu};
+  return null;
+}
+
+function raceCarPicker(nodes,car){
+  const modal=one(nodes.filter(n=>n.id==='select-car-modal-modal-dialog'));
+  if(!modal)return null;
+  const scope=descended(nodes,modal);
+  const title=heading(scope,'Select a car');
+  const name=heading(scope,car);
+  const card=name&&nodes[name.parent];
+  if(!title||!card?.id?.startsWith('series-select-car-modal-car-card-')||card.parent!==modal.index||!action(card))
+    throw Error('选车窗口没有显示唯一的目标车辆。');
+  if(descended(scope,card).some(n=>/\$\s*\d|\b(?:Buy|Purchase|Add to Cart)\b/i.test(label(n))))
+    throw Error('报名窗口提示需要购买所选车辆。');
+  const next=one(scope.filter(n=>n.parent===modal.index&&type(n,'Hyperlink')&&action(n)&&
+    clean(label(n).replace(/\p{Co}/gu,''))==='Continue'));
+  return {modal,title,name,card,next};
+}
+
+function flowContext(raw,job,now,requireOpen=true){
+  validateSnapshot(raw,now);
+  const {nodes,teamTarget}=raw;
+  const formRoot=one(nodes.filter(n=>type(n,'Window')&&equals(n,'Go Racing')&&n.id?.startsWith('chakra-modal-')&&
+    heading(descended(nodes,n),'Team Registration')));
+  if(!formRoot)return raceContext(raw,job,now,requireOpen);
+  if(!raceUrl.test(raw.url)||!teamTarget||teamTarget.windowId!==formRoot.id||teamTarget.car!==job.car||
+     teamTarget.series!==job.series||teamTarget.track!==job.track||
+     Date.parse(teamTarget.startUtc)!==Date.parse(job.startUtc)||now>=Date.parse(job.startUtc))
+    throw Error('报名窗口无法与预约场次绑定，请关闭手动打开的表单后重试。');
+  return {raw,nodes,formRoot,anchors:[formRoot]};
 }
 
 function wizard(nodes){
@@ -109,7 +139,7 @@ function wizard(nodes){
   if(!title)return null;
   for(const root of ancestors(nodes,title)){
     const scope=descended(nodes,root);
-    if(['Team Setup','Registered Teams','Join a Registered Team'].some(name=>includes(scope,name)))return {title,scope};
+    if(['Team Setup','Registered Teams','Join a Registered Team'].some(name=>includes(scope,name)))return {title,scope,root};
   }
   throw Error('无法划定 Team Registration 窗口范围。');
 }
@@ -118,24 +148,35 @@ function dropOption(nodes,value){
   const options=new Map();
   for(const name of nodes.filter(n=>equals(n,value))){
     const chain=[name,...ancestors(nodes,name)];
-    if(!chain.some(n=>/^(menu-list-|popover-content-|listbox)/.test(n.id||'')||type(n,'Menu')))continue;
-    const control=chain.find(n=>action(n)&&(type(n,'MenuItem')||type(n,'ListItem')||type(n,'Button')));
+    if(!chain.some(n=>/^(menu-list-|popover-content-|listbox|react-select-.*-listbox)/.test(n.id||'')||type(n,'Menu')))continue;
+    const control=chain.find(n=>action(n)&&(['MenuItem','ListItem','Button','DataItem'].some(kind=>type(n,kind))||/-option-\d+$/.test(n.id||'')));
     if(control)options.set(control.index,{control,name});
   }
   return one([...options.values()]);
 }
 
 function rosterProof(w,names){
-  const countNode=w.scope.find(n=>/^\d+ Drivers Selected$/i.test(label(n)));
+  const countNode=w.scope.find(n=>/^\d+ Drivers? Selected$/i.test(label(n)));
   const count=countNode?label(countNode).match(/^\d+/)[0]:undefined;
   const table=one(w.scope.filter(n=>type(n,'Table')&&includes(descended(w.scope,n),'Display Name')));
   // The roster summary and the table both have to agree before registration.
   if(!table)return {names:[],verified:names.length===0&&!count};
   const rows=descended(w.scope,table);
-  const present=names.filter(name=>rows.some(n=>type(n,'Text')&&equals(n,name)));
+  const present=names.filter(name=>rows.some(n=>(type(n,'Text')||type(n,'DataItem'))&&equals(n,name)));
   if(count!==undefined)return {names:present,verified:Number(count)===names.length&&present.length===names.length,anchor:table,countNode};
   const cells=rows.filter(n=>type(n,'DataItem')&&label(n)&&!equals(n,'Display Name'));
   return {names:present,verified:cells.length===names.length&&names.every(name=>includes(cells,name)),anchor:table};
+}
+
+const teamField=form=>one(form?.scope.filter(n=>type(n,'Edit')&&equals(n,'Select a Team to Register'))||[]);
+function selectedTeam(form,name){
+  const field=teamField(form);
+  if(field){
+    if(clean(field.value)===name)return field;
+    const parent=form.scope.find(n=>n.index===field.parent);
+    if(parent)return heading(descended(form.scope,parent),name);
+  }
+  return form?.scope.find(n=>equals(n,'Selected Team: '+name)||type(n,'ComboBox')&&equals(n,name));
 }
 
 function teamMatch(w,job){
@@ -143,8 +184,9 @@ function teamMatch(w,job){
   const registered=heading(w.scope,'Registered Teams')||heading(w.scope,'Join a Registered Team');
   if(!registered)return null;
   const section=ancestors(w.scope,registered).find(root=>includes(descended(w.scope,root),job.teamName));
-  if(!section)return null;
-  const scope=descended(w.scope,section);
+  const setup=w.scope.find(n=>n.index>registered.index&&equals(n,'Team Setup'));
+  const scope=section?descended(w.scope,section):registered.parent===w.root.index?
+    w.scope.filter(n=>n.index>registered.index&&n.index<(setup?.index??Infinity)):[];
   const name=heading(scope,job.teamName);
   if(!name)return null;
   for(const row of ancestors(w.scope,name)){
@@ -168,7 +210,7 @@ function teamMatch(w,job){
 
 export function receipt(raw,job,phase,now=Date.now()){
   try{
-    const context=raceContext(raw,job,now,false);
+    const context=flowContext(raw,job,now,false);
     const registered=teamMatch(wizard(context.nodes),job);
     if(phase==='team')return !!registered;
     return !!registered?.joined;
@@ -187,65 +229,74 @@ export async function openTeamSeriesPage(request,series,allowed=()=>true){
   return step('open_series',{series:title});
 }
 
-export function makeTeamAdapter(request,now=Date.now){
+export function makeTeamAdapter(request,now=Date.now,settle=delay){
+  let signedInFor;
   function command(context,job,node,phase,extra=[]){
-    if(!node||!action(node))throw Error('客户端未提供唯一且可操作的控件。');
+    const opensTeamPicker=phase==='prepare'&&context.formRoot&&type(node,'Edit')&&node?.enabled&&equals(node,'Select a Team to Register');
+    if(!node||(!action(node)&&!opensTeamPicker))throw Error('客户端未提供唯一且可操作的控件。');
     const identity=n=>({index:n.index,parent:n.parent,type:n.type,id:n.id||'',name:n.name||'',text:n.text||'',value:n.value||''});
-    return {phase,startUtc:job.startUtc,url:context.raw.url,node:identity(node),
+    return {phase,startUtc:job.startUtc,series:job.series,track:job.track,car:job.car,url:context.raw.url,node:identity(node),
       anchors:[...new Set([...context.anchors,...extra].filter(Boolean))].map(identity)};
   }
   async function read(){return request('snapshot');}
 
-  async function prepare(job,phase,allowed){
+  async function prepare(job,phase,allowed,report=()=>{}){
+    const check=raw=>flowContext(raw,job,now());
     const operate=async(context,node,extra)=>{
       if(!allowed())throw Error('预约已取消、暂停或开赛。');
       const result=await request('team_action',command(context,job,node,'prepare',extra));
       if(!result.invoked)throw Error(result.reason);
-      await delay(550);
-      return read();
+      await settle(550);
+      return check(await read());
     };
     const select=async(context,value,extra)=>{
-      const option=dropOption(context.nodes,value);
+      const option=dropOption(context.formRoot?descended(context.nodes,context.formRoot):context.nodes,value);
       if(!option)throw Error('选择列表未显示唯一的目标选项。');
       return operate(context,option.control,[...extra,option.name]);
     };
     let raw=await read();
     if(phase==='driver'&&receipt(raw,job,phase,now()))return {confirmed:true};
-    if(phase==='driver'){
+    const identityKey=JSON.stringify([job.startUtc,job.series,job.teamId,job.ownDriverId,job.ownDriverName]);
+    const needsIdentity=phase==='driver'||(job.bookingMode==='team_then_join'&&!wizard(raw.nodes));
+    if(needsIdentity&&signedInFor!==identityKey){
       if(!allowed())throw Error('预约已取消、暂停或开赛。');
-      const profile=await request('navigate',{target:'Profile'});
-      validateSnapshot(profile,now());
-      const match=heading(profile.nodes,job.ownDriverName);
-      if(profile.url!==profileUrl||!match)throw Error('当前 iRacing 个人资料与准备单本人身份不匹配。');
+      let profile;
+      try{
+        profile=await request('navigate',{target:'Profile'});
+        validateSnapshot(profile,now());
+      }catch(e){if(phase==='driver')throw e;profile=null;}
+      if(profile?.url===profileUrl){
+        if(!heading(profile.nodes,job.ownDriverName))throw Error('当前 iRacing 个人资料与准备单本人身份不匹配。');
+        signedInFor=identityKey;
+      }else if(phase==='driver')throw Error('当前 iRacing 个人资料与准备单本人身份不匹配。');
       raw=await openTeamSeriesPage(request,job.series,allowed);
-    }else if(!raceUrl.test(raw.url)||!raw.nodes.some(n=>type(n,'Text')&&norm(n.name)===norm(job.series))){
+    }else if(!raceUrl.test(raw.url)||(!wizard(raw.nodes)&&!raw.nodes.some(n=>type(n,'Text')&&norm(n.name)===norm(job.series)))){
       if(/\bWithdraw\b|You may join your session\./i.test(raw.text||''))throw Error('客户端已有其他报名。');
       raw=await openTeamSeriesPage(request,job.series,allowed);
     }
-    let context=raceContext(raw,job,now());
-    const currentCar=carChoice(context);
-    if(!equals(currentCar.current,job.car)){
-      raw=await operate(context,currentCar.menu,[currentCar.current]);
-      context=raceContext(raw,job,now());
-      raw=await select(context,job.car,[currentCar.current]);
-      context=raceContext(raw,job,now());
-    }
-    let current=carChoice(context).current;
-    if(!equals(current,job.car))throw Error('所选车辆未匹配目标。');
-    if(!wizard(context.nodes)){
+    if(phase==='team')report('car','checking');
+    let context=check(raw);
+    if(!wizard(context.nodes)&&!raceCarPicker(context.nodes,job.car)){
       const eligible=heading(context.nodes,'You are eligible to race in this series!');
       if(!eligible)throw Error('客户端尚未确认所选车辆和赛道的参赛资格。');
-      raw=await operate(context,context.register,[current,eligible]);
-      context=raceContext(raw,job,now());
+      context=await operate(context,context.register,[eligible]);
+    }
+    const carPicker=raceCarPicker(context.nodes,job.car);
+    if(carPicker){
+      context=await operate(context,carPicker.card,[carPicker.modal,carPicker.title,carPicker.name]);
+      const chosen=raceCarPicker(context.nodes,job.car);
+      if(!chosen)throw Error('选车窗口在确认之前发生变化。');
+      context=await operate(context,chosen.next,[chosen.modal,chosen.title,chosen.name]);
     }
     let form=wizard(context.nodes);
     if(!form)throw Error('Team Registration 窗口尚未打开。');
+    const current=selectedCar(context);
+    if(!equals(current,job.car))throw Error('客户端未确认选中的车辆。');
     let registered=teamMatch(form,job);
     if(phase==='driver'){
       const joinList=button(form.scope,'Join a Registered Team');
       if(!registered&&joinList){
-        raw=await operate(context,joinList,[form.title,current]);
-        context=raceContext(raw,job,now());
+        context=await operate(context,joinList,[form.title,current]);
         form=wizard(context.nodes);
         registered=teamMatch(form,job);
       }
@@ -253,49 +304,64 @@ export function makeTeamAdapter(request,now=Date.now){
       if(!registered?.join)throw Error('尚未找到该场次、该车队和车辆对应的车手加入按钮。');
       return command(context,job,registered.join,'driver',[form.title,registered.name,registered.car]);
     }
+    report('car','confirmed');
+    report('team','checking');
     if(registered){
       if(job.driverNames.length&&!rosterProof({scope:registered.group},job.driverNames).verified)
         throw Error('该车队已经报名，客户端未显示可核对的已申报车手名单。');
+      report('team','confirmed');
+      report('roster','confirmed');
       return {confirmed:true};
     }
-    const selectedTeam=()=>form.scope.find(n=>equals(n,'Selected Team: '+job.teamName)||type(n,'ComboBox')&&equals(n,job.teamName));
-    if(!selectedTeam()){
-      const picker=one(form.scope.filter(n=>action(n)&&
+    const selection=()=>selectedTeam(form,job.teamName);
+    if(!selection()){
+      const picker=teamField(form)||one(form.scope.filter(n=>action(n)&&
         (['Select Team','Select a Team','Select a team'].some(s=>equals(n,s))||/^Selected Team: /i.test(label(n)))));
-      raw=await operate(context,picker,[form.title]);
-      context=raceContext(raw,job,now());
-      raw=await select(context,job.teamName,[form.title]);
-      context=raceContext(raw,job,now());
+      context=await operate(context,picker,[form.title]);
+      form=wizard(context.nodes);
+      if(!form)throw Error('车队选择窗口已关闭。');
+      context=await select(context,job.teamName,[form.title]);
       form=wizard(context.nodes);
     }
-    if(!form||!selectedTeam())throw Error('报名窗口未确认选中的车队。');
+    if(!form||!selection())throw Error('报名窗口未确认选中的车队。');
+    report('team','confirmed');
+    report('roster','checking');
+    for(const name of job.driverNames){
+      if(!form||!selection())throw Error('车队选择已变化。');
+      if(rosterProof(form,job.driverNames).names.includes(name))continue;
+      context=await operate(context,button(form.scope,'Add a Driver'),[form.title,selection()]);
+      form=wizard(context.nodes);
+      if(!form)throw Error('车手选择窗口已关闭。');
+      context=await select(context,name,[form.title]);
+      form=wizard(context.nodes);
+    }
+    const anchors=()=>{
+      const car=selectedCar(context);
+      if(!form||!selection()||!equals(car,job.car))throw Error('车辆或车队确认信息已变化。');
+      const roster=rosterProof(form,job.driverNames);
+      if(!roster.verified)throw Error('报名窗口中的申报码单无法与准备单逐项核对。');
+      const names=roster.anchor?descended(context.nodes,roster.anchor).filter(n=>job.driverNames.some(name=>equals(n,name))):[];
+      return [form.title,selection(),car,roster.anchor,roster.countNode,...names];
+    };
+    anchors();
+    report('roster','confirmed');
+    report('verify','checking');
     const verifyTeam=button(form.scope,'Verify Team');
     if(verifyTeam){
-      raw=await operate(context,verifyTeam,[form.title,selectedTeam()]);
-      context=raceContext(raw,job,now());
+      context=await operate(context,verifyTeam,anchors());
       form=wizard(context.nodes);
     }
-    for(const name of job.driverNames){
-      if(!form||!selectedTeam())throw Error('车队选择已变化。');
-      if(rosterProof(form,job.driverNames).names.includes(name))continue;
-      raw=await operate(context,button(form.scope,'Add a Driver'),[form.title,selectedTeam()]);
-      context=raceContext(raw,job,now());
-      raw=await select(context,name,[form.title]);
-      context=raceContext(raw,job,now());
-      form=wizard(context.nodes);
-    }
-    current=carChoice(context).current;
-    if(!form||!selectedTeam()||!equals(current,job.car))throw Error('车辆或车队确认信息已变化。');
-    const roster=rosterProof(form,job.driverNames);
-    if(!roster.verified)throw Error('报名窗口中的申报码单无法与准备单逐项核对。');
-    const names=roster.anchor?descended(context.nodes,roster.anchor).filter(n=>job.driverNames.some(name=>equals(n,name))):[];
-    return command(context,job,button(form.scope,'Register Team'),'team',[form.title,selectedTeam(),current,roster.anchor,roster.countNode,...names]);
+    const proof=anchors();
+    const register=button(form.scope,'Register Team');
+    if(!register||button(form.scope,'Verify Team'))throw Error('Verify Team 后未显示可提交的整队报名按钮。');
+    report('verify','confirmed');
+    return command(context,job,register,'team',proof);
   }
   return {
     prepare,
     submit:async(job,phase,prepared)=>{
       const result=await request('team_action',prepared);
-      if(result.invoked)await delay(900);
+      if(result.invoked)await settle(900);
       return result;
     },
     verify:async(job,phase)=>receipt(await read(),job,phase,now())

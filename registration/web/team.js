@@ -391,6 +391,18 @@
       item.append(element('p','开始检查报名窗口 · '+fmt(job.registrationOpenUtc)+'（多伦多）','hint'));
       const progress={waiting:'待执行',unconfirmed:'结果待核实',confirmed:'已确认',not_requested:'未选择'};
       item.append(element('p','整队报名 '+progress[job.teamProgress.team]+' · 本人加入 '+progress[job.teamProgress.driver]));
+      const canShowSteps=job.teamSteps||['waiting','blocked','submitting','uncertain'].includes(job.status);
+      if(canShowSteps&&job.bookingMode!=='join_team'&&job.status!=='reviewed'){
+        const steps=element('ol',undefined,'hint');
+        const labels={car:'选车',team:'选择车队',roster:'申报车手',verify:'Verify Team',submit:'整队报名'};
+        const states={checking:'正在核对',confirmed:'已确认',blocked:'未通过核对',unconfirmed:'结果待核实'};
+        steps.setAttribute('aria-label','车队报名步骤');
+        for(const [key,label] of Object.entries(labels)){
+          const step=key==='submit'&&job.teamProgress.team==='unconfirmed'&&job.status==='uncertain'?'unconfirmed':job.teamSteps?.[key];
+          steps.append(element('li',label+' · '+(states[step]||(key==='submit'&&job.teamProgress.team==='confirmed'?'已确认':'待执行'))));
+        }
+        item.append(steps);
+      }
       item.append(element('p',job.note));
       if(['waiting','blocked','uncertain'].includes(job.status)){
         const confirm=job.status==='uncertain';

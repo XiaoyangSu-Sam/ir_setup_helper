@@ -53,14 +53,16 @@ export class Store{
       throw Error('同场次的车队已有预约。请先查看或取消之前的预约。');
     return saved;
   }
-  updateTeam(id,status,note,progress){
+  updateTeam(id,status,note,progress,steps){
     const before=this.get(id);
     if(!before||before.kind!=='team_appointment')throw Error('车队预约不存在。');
-    if(before.status===status&&before.note===note&&JSON.stringify(before.teamProgress)===JSON.stringify(progress))return before;
+    steps??=before.teamSteps||{};
+    if(before.status===status&&before.note===note&&JSON.stringify(before.teamProgress)===JSON.stringify(progress)&&
+       JSON.stringify(before.teamSteps||{})===JSON.stringify(steps))return before;
     this.db.exec('BEGIN IMMEDIATE');
     try{
-      this.db.prepare("UPDATE jobs SET payload=json_set(payload,'$.teamProgress',json(?)),status=?,note=?,updated=? WHERE id=?")
-        .run(JSON.stringify(progress),status,note,new Date().toISOString(),id);
+      this.db.prepare("UPDATE jobs SET payload=json_set(payload,'$.teamProgress',json(?),'$.teamSteps',json(?)),status=?,note=?,updated=? WHERE id=?")
+        .run(JSON.stringify(progress),JSON.stringify(steps),status,note,new Date().toISOString(),id);
       this.event(id,status,note);
       this.db.exec('COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}

@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {makeTeamAdapter,raceContext,receipt} from '../../registration/team-browser.mjs';
+import {runTeamAppointment} from '../../registration/team-appointment.mjs';
+import {currentTeamClient} from './current-team-form.fixture.mjs';
 
 const startUtc='2026-11-28T07:00:00.000Z',now=Date.parse(startUtc)-90000;
 const url='https://members-ng.iracing.com/web/racing/official/series-list/6777/go-racing';
@@ -135,4 +137,53 @@ test('requires the signed-in profile before preparing a matching driver action',
   assert.equal(prepared.node.name,'Register as Driver');
   const other=makeTeamAdapter(request('Other Account'),()=>now);
   await assert.rejects(()=>other.prepare(job,'driver',()=>true),/本人身份/);
+});
+
+test('current client completes the appointment through the car picker, bound form and team receipt',async()=>{
+  const client=currentTeamClient(()=>raw({form:false}),job);
+  const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+  let state={...job,id:'current',status:'waiting',bookingMode:'team_then_join',
+    registrationOpenUtc:new Date(now-1000).toISOString(),teamProgress:{team:'waiting',driver:'waiting'}};
+  const transitions=[];
+  const store={get:()=>state,updateTeam:(id,status,note,teamProgress,steps)=>{
+    state={...state,status,note,teamProgress:{...teamProgress},teamSteps:{...steps}};
+    transitions.push(state);
+  }};
+  await runTeamAppointment(store,adapter,state,()=>now);
+  assert.deepEqual(client.actions,['open race','select car','continue','open teams','select team','open drivers','select driver','verify team','register team']);
+  assert.equal(state.teamProgress.team,'confirmed');
+  assert.equal(state.teamProgress.driver,'waiting');
+  for(const key of ['car','team','roster','verify','submit']){
+    assert.ok(transitions.some(s=>s.teamSteps[key]==='checking'),key+' never started');
+    assert.equal(state.teamSteps[key],'confirmed',key);
+  }
+  await runTeamAppointment(store,adapter,state,()=>now);
+  assert.equal(state.status,'succeeded');
+  assert.equal(client.actions.at(-1),'join as driver');
+});
+
+test('rejects a current form tied to another race, ambiguous team or extra declared driver',async()=>{
+  for(const [options,why] of [[{wrongSession:true},/窗口.*场次/],[{wrongSeries:true},/窗口.*场次/],[{duplicateTeam:true},/唯一/],[{extraDriver:true},/申报码单/]]){
+    const client=currentTeamClient(()=>raw({form:false}),job,options);
+    const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+    await assert.rejects(()=>adapter.prepare(job,'team',()=>true),why);
+    assert.equal(client.actions.includes('verify team'),false);
+    assert.equal(client.actions.includes('register team'),false);
+  }
+});
+
+test('a missing team receipt preserves prior steps and never repeats registration or joins',async()=>{
+  const client=currentTeamClient(()=>raw({form:false}),job,{noReceipt:true});
+  const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+  let state={...job,id:'current-no-receipt',status:'waiting',bookingMode:'team_then_join',
+    registrationOpenUtc:new Date(now-1000).toISOString(),teamProgress:{team:'waiting',driver:'waiting'}};
+  const store={get:()=>state,updateTeam:(id,status,note,teamProgress,steps)=>{
+    state={...state,status,note,teamProgress:{...teamProgress},teamSteps:{...steps}};
+  }};
+  await runTeamAppointment(store,adapter,state,()=>now);
+  await runTeamAppointment(store,adapter,state,()=>now);
+  assert.equal(state.status,'uncertain');
+  assert.deepEqual(state.teamSteps,{car:'confirmed',team:'confirmed',roster:'confirmed',verify:'confirmed',submit:'unconfirmed'});
+  assert.equal(client.actions.filter(action=>action==='register team').length,1);
+  assert.equal(client.actions.includes('join as driver'),false);
 });
