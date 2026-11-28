@@ -219,6 +219,10 @@ test('withdraws the opted-in driver first and confirms the removed team from the
     const adapter=makeTeamAdapter(client.request,()=>actionTime,async()=>{});
     await adapter.submit(plan,'team',await adapter.prepare(plan,'team',()=>true));
     await adapter.submit(plan,'driver',await adapter.prepare(plan,'driver',()=>true));
+    const actionCount=client.actions.length;
+    const staleExit={...plan,teamWithdrawal:{state:'blocked',driverWithdrawn:true}};
+    await assert.rejects(()=>adapter.withdraw(staleExit,()=>true,()=>{}),/又显示本人已登记/);
+    assert.equal(client.actions.length,actionCount);
     const progress=[];
     const result=adapter.withdraw(plan,()=>true,step=>progress.push(step));
     if(missingWithdrawReceipt){
@@ -281,6 +285,9 @@ test('a restarted assistant resumes the team exit after the personal exit was re
   assert.equal(await restarted.withdraw({...plan,teamWithdrawal:{state:'blocked',driverWithdrawn:true}},()=>true,()=>{}),true);
   assert.equal(client.actions.filter(action=>action==='confirm personal withdrawal').length,1);
   assert.equal(client.actions.at(-1),'withdraw team');
+  const observerWithoutAction=makeTeamAdapter(client.request,()=>actionTime,async()=>{});
+  await assert.rejects(()=>observerWithoutAction.withdraw(plan,()=>true,()=>{},'team'),/尚未确认/);
+  assert.equal(client.actions.filter(action=>action==='withdraw team').length,1);
 });
 
 test('registered team and registered driver are separate scoped receipts',()=>{

@@ -334,7 +334,7 @@ function registeredTeamRow(form,teamName){
   return one(matches);
 }
 
-function teamAbsent(form,teamName){
+function teamAbsent(form,teamName,matchedWithdrawal){
   const title=heading(form?.scope||[],'Join a Registered Team');
   const setup=heading(form?.scope||[],'Team Setup');
   if(!title||!setup||setup.index<=title.index)return false;
@@ -342,7 +342,7 @@ function teamAbsent(form,teamName){
   const loaded=section.some(n=>type(n,'Table')&&includes(descended(section,n),'Team Name')&&includes(descended(section,n),'Car'))||
     section.some(n=>type(n,'Text')&&(
       /^(?:There are )?no (?:registered teams|teams (?:are )?registered)(?: for this (?:race|session))?\.?$/i.test(label(n))||
-      /^There are no registered teams that you may join of \d+ teams? currently in the session\.?$/i.test(label(n))));
+      (matchedWithdrawal&&/^There are no registered teams that you may join of \d+ teams? currently in the session\.?$/i.test(label(n)))));
   return loaded&&!section.some(n=>equals(n,teamName)||/^Loading(?:…|\.\.\.)?$/i.test(label(n)));
 }
 
@@ -405,6 +405,7 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
   let signedInFor;
   let lastClockRefresh=0;
   let driverAttempt;
+  let teamExitAction;
   function command(context,job,node,phase,extra=[]){
     const opensTeamPicker=phase==='prepare'&&context.formRoot&&type(node,'Edit')&&node?.enabled&&equals(node,'Select a Team to Register');
     if(!node||(!action(node)&&!opensTeamPicker))throw Error('客户端未提供唯一且可操作的控件。');
@@ -457,6 +458,12 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
       return inspect();
     }
     const scopedRow=context=>registeredTeamRow(wizard(context.nodes),job.teamName);
+    const teamExitConfirmed=context=>{
+      if(!context.formRoot)return false;
+      const matchingAction=teamExitAction&&(teamExitAction.job===job||job.id&&teamExitAction.job.id===job.id)&&
+        teamExitAction.windowId===context.formRoot.id&&now()-teamExitAction.at<=120000;
+      return teamAbsent(wizard(context.nodes),job.teamName,matchingAction);
+    };
     let raw=await read();
     let context;
     let row;
@@ -465,10 +472,7 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
     const showMainRegistration=nativeDriverTarget(raw,job)&&
       raw.text?.includes('You may join your session.');
     if(verifyStage==='team'){
-      const confirmed=raw=>{
-        const context=flowContext(raw,job,now());
-        return !!context.formRoot&&teamAbsent(wizard(context.nodes),job.teamName);
-      };
+      const confirmed=raw=>teamExitConfirmed(flowContext(raw,job,now()));
       if(confirmed(raw)&&confirmed(await inspect()))return true;
       throw Error('本次整队退出尚未确认。请查看 iRacing 的报名车队列表。');
     }
@@ -530,16 +534,20 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
     }
     row=scopedRow(context);
     if(!row)throw Error('当前场次未显示可核对的车队报名。请查看 iRacing。');
+    if(row.personalWithdraw||(job.ownDriverName&&includes(row.scope,job.ownDriverName)&&
+       ['Registered as Driver','You are registered as a driver'].some(name=>includes(row.scope,name))))
+      throw Error('iRacing 又显示本人已登记，请先核对当前会话。');
     if(!context.formRoot||!row.withdraw||!matchesRegisteredCar(row,job.car))
       throw Error('iRacing 尚未提供该车队的退出权限。请检查是否仍有队员登记，或退出窗口是否已关闭。');
     progress('team_submitting','正在退出整队报名。');
     const result=await dispatch(context,row.withdraw,'withdraw_team',[row.title,row.row,row.team,row.car]);
     if(!result.invoked){progress('blocked',result.reason);throw Error(result.reason);}
+    teamExitAction={job,windowId:context.formRoot.id,at:now()};
     let latest=await readAfterWithdrawal(context,'withdraw_team');
     let absent=0;
     for(let attempt=0;attempt<3;attempt++){
       const next=flowContext(latest,job,now());
-      if(next.formRoot&&teamAbsent(wizard(next.nodes),job.teamName)){
+      if(teamExitConfirmed(next)){
         if(++absent===2)return true;
       }else absent=0;
       if(attempt<2)latest=await inspect();
