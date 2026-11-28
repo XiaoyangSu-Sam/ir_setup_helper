@@ -125,7 +125,7 @@ test('the submit payload identifies the exact team button and both roster rows',
 
 test('requires the signed-in profile before preparing a matching driver action',async()=>{
   const profile=(name)=>({...raw(),url:'https://members-ng.iracing.com/web/racing/profile',
-    nodes:[{index:0,parent:-1,type:'ControlType.Text',name}]});
+    nodes:[name,'SPORTS CAR RACING',name,'Class B','3.00'].map((name,index)=>({index,parent:-1,type:'ControlType.Text',name}))});
   function request(name){
     return async(op,args)=>{
       if(op==='navigate'&&args.target==='Profile')return profile(name);

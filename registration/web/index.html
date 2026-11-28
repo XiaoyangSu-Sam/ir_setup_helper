@@ -18,6 +18,7 @@
 <p id="scan-feedback" class="notice" role="status" aria-live="polite">扫描完成后会在此显示结果。</p><label>选择比赛周<input type="date" name="weekend" required></label><div class="week-nav"><button type="button" id="weekend-prev" class="ghost">上一周</button><button type="button" id="weekend-today" class="ghost">本周</button><button type="button" id="weekend-next" class="ghost">下一周</button></div><label>搜索赛事或赛道<input id="endurance-search" type="search" placeholder="例如 斯帕、纽博格林、IMSA"></label>
 <section id="week-calendar" class="week-calendar" aria-labelledby="calendar-heading" hidden>
   <div class="calendar-title"><div><h3 id="calendar-heading">耐力赛周历</h3><p id="calendar-date"></p></div><label class="calendar-scope"><input id="calendar-selected-only" type="checkbox"> 仅看所选赛事</label></div>
+  <div class="calendar-eligibility"><label class="calendar-scope"><input id="calendar-eligible-only" type="checkbox" disabled> 只看我能报名的比赛</label><button type="button" id="calendar-read-eligibility" class="ghost">读取我的参赛资格</button><p id="calendar-eligibility-status" class="hint" role="status"></p></div>
   <div id="calendar-days" class="calendar-days" aria-label="按开赛日筛选"></div>
   <div class="calendar-agenda-heading"><strong id="calendar-agenda-title">整周场次</strong><button id="calendar-all-days" type="button" class="ghost" hidden>显示整周</button></div>
   <div id="calendar-agenda"></div><p id="calendar-feedback" role="status" class="hint" hidden></p>

@@ -19,7 +19,7 @@ function weeklyTimes(time){
 }
 function message(text,ok=false){$('message').hidden=false;$('message').textContent=text;$('message').className='message'+(ok?' success':'');}
 async function api(path,data,authKey=key){
-  const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),path==='/api/status'?12000:path==='/api/team-options/members'?300000:90000);
+  const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),path==='/api/status'?12000:path==='/api/team-options/members'||path==='/api/team-options/eligibility'?300000:90000);
   try{
     let r;try{r=await fetch(path,{method:data===undefined?'GET':'POST',signal:abort.signal,headers:{Authorization:'Bearer '+authKey,...(data===undefined?{}:{'Content-Type':'application/json'})},body:data===undefined?undefined:JSON.stringify(data)});}catch(e){throw Error(e.name==='AbortError'?'连接超时：先查看任务是否正在提交或待核实，不要重复报名。检查主电脑助手与网络，远程访问还需检查两端 Tailscale。':'无法连接电脑：本机请确认报名助手仍运行；手机或其他电脑请确认两端 Tailscale 已连接，并打开主电脑生成的私人 HTTPS 地址。');}
     let b;try{b=await r.json();}catch{throw Error('服务返回了异常页面，请刷新页面后重试。');}

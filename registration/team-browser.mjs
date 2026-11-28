@@ -179,6 +179,13 @@ function selectedTeam(form,name){
   return form?.scope.find(n=>equals(n,'Selected Team: '+name)||type(n,'ComboBox')&&equals(n,name));
 }
 
+function signedInAs(profile,name){
+  const text=profile.nodes.filter(n=>type(n,'Text'));
+  const cards=text.filter(n=>/^(?:OVAL|SPORTS CAR|FORMULA|DIRT OVAL|DIRT ROAD) RACING$/.test(label(n)));
+  return cards.length?cards.some(card=>equals(text.find(n=>n.index>card.index&&n.parent===card.parent),name)):
+    !!heading(text,name);
+}
+
 function teamMatch(w,job){
   if(!w)return null;
   const registered=heading(w.scope,'Registered Teams')||heading(w.scope,'Join a Registered Team');
@@ -266,7 +273,7 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
         validateSnapshot(profile,now());
       }catch(e){if(phase==='driver')throw e;profile=null;}
       if(profile?.url===profileUrl){
-        if(!heading(profile.nodes,job.ownDriverName))throw Error('当前 iRacing 个人资料与准备单本人身份不匹配。');
+        if(!signedInAs(profile,job.ownDriverName))throw Error('当前 iRacing 个人资料与准备单本人身份不匹配。');
         signedInFor=identityKey;
       }else if(phase==='driver')throw Error('当前 iRacing 个人资料与准备单本人身份不匹配。');
       raw=await openTeamSeriesPage(request,job.series,allowed);

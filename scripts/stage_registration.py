@@ -29,9 +29,9 @@ OPTIONAL = {
     )
 }
 NON_RUNTIME = {"NativeBridge.cs", "启动报名助手.cmd", "新手使用说明.md"}
-PROJECT_MODULES = {"team-appointment.mjs", "team-browser.mjs"}
+PROJECT_MODULES = {"calendar-eligibility.mjs", "team-appointment.mjs", "team-browser.mjs"}
 PROJECT_OVERRIDES = (
-    "scheduler.mjs", "season-catalog.mjs", "server.mjs", "special-events.mjs", "store.mjs",
+    "calendar-eligibility.mjs", "scheduler.mjs", "season-catalog.mjs", "server.mjs", "special-events.mjs", "store.mjs",
     "team-appointment.mjs", "team-browser.mjs", "team-progress.mjs",
     "web/app.js", "web/index.html", "web/style.css", "web/support.js", "web/team.js",
 )

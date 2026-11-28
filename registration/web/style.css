@@ -30,9 +30,9 @@
 .calendar-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;line-height:1.38;text-align:left}
 .calendar-table :is(th,td){padding:9px 8px;vertical-align:top;overflow-wrap:anywhere}
 .calendar-table th{color:#33594d;font-size:11px;font-weight:650;background:#eff5f0}
-.calendar-table th:first-child,.calendar-table td:first-child{padding-left:14px;width:10%}
-.calendar-table th:nth-child(3){width:10%}.calendar-table th:nth-child(4){width:14%}
-.calendar-table th:nth-child(5){width:13%}.calendar-table th:nth-child(6){width:17%}.calendar-table th:nth-child(7){width:12%}
+.calendar-table th:first-child,.calendar-table td:first-child{padding-left:14px;width:8%}
+.calendar-table th:nth-child(3){width:13%}.calendar-table th:nth-child(4){width:8%}
+.calendar-table th:nth-child(5){width:11%}.calendar-table th:nth-child(6){width:11%}.calendar-table th:nth-child(7){width:15%}.calendar-table th:nth-child(8){width:10%}
 .calendar-table tbody tr+tr{border-top:1px solid #e4ebe6}
 .calendar-table .calendar-day-row th{background:#f8faf6;border-top:1px solid #dce7df;font-size:12px;width:auto}
 .calendar-table small{display:block;margin-top:3px;font-size:11px;color:#4b625a}
@@ -42,6 +42,13 @@
 #team-fields .calendar-slot[aria-pressed=true],#team-fields .calendar-slot:hover{background:#205a4d;border-color:#205a4d;color:white}
 .calendar-weather-rain{color:#19517c;font-weight:650}
 .calendar-weather-dry{color:#245b42;font-weight:650}
+.calendar-eligibility{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:0 14px 10px}
+#team-fields #calendar-read-eligibility{width:auto;margin:0;padding:4px 9px;font-size:12px}
+.calendar-eligibility p{flex-basis:100%;margin:0}
+.calendar-eligibility-eligible{color:#245b42}
+.calendar-eligibility-blocked{color:#a12626}
+.calendar-eligibility-unknown{color:#51655e}
+.team-booking-roster{margin:2px 0 8px;padding-inline-start:21px}
 .calendar-empty,#calendar-feedback{padding:0 14px}
 .week-calendar .hint{color:#46655b}
 .week-calendar button:focus-visible{outline:2px solid #3e7a5f;outline-offset:-2px}

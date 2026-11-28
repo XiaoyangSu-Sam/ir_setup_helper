@@ -478,12 +478,51 @@ public class NativeBridge : Form {
         }
         if(op=="navigate"){
             string target=(string)req["target"];
-            if(!new[]{"Official","Official Series","Go Racing","Schedule","Teams","Profile"}.Contains(target))throw new Exception("不支持的导航。");
+            if(!new[]{"Official","Official Series","Go Racing","Schedule","Teams","Profile","My Content"}.Contains(target))throw new Exception("不支持的导航。");
             var s=Read();var links=s.nodes.Where(n=>n.type=="ControlType.Hyperlink"&&n.name==target&&!String.IsNullOrEmpty(n.value)).ToList();
             if(links.Count!=1)throw new Exception("导航入口不唯一："+target);
             if(target=="Teams" && links[0].value!="https://members-ng.iracing.com/web/racing/teams/my-teams")throw new Exception("未找到官方我的车队入口。");
             if(target=="Profile" && links[0].value!="https://members-ng.iracing.com/web/racing/profile")throw new Exception("未找到当前账号的官方个人资料。");
+            if(target=="My Content" && links[0].value!="https://members-ng.iracing.com/web/racing/licensed-content")throw new Exception("未找到官方已授权内容入口。");
             Invoke(links[0],deadline);Thread.Sleep(1500);return Read();
+        }
+        if(op=="licensed_tab"){
+            const string home="https://members-ng.iracing.com/web/racing/licensed-content/";
+            var tab=(string)req["tab"];
+            var s=Read();
+            if(s.url!=home+"cars"&&s.url!=home+"tracks")throw new Exception("请先打开 My Content。");
+            if(tab=="list"){
+                if(s.nodes.Any(n=>n.type=="ControlType.Table"))return s;
+                var list=Unique(s,"List","ControlType.TabItem");object p;
+                if(!list.element.TryGetCurrentPattern(SelectionItemPattern.Pattern,out p)||DateTime.UtcNow>deadline)
+                    throw new Exception("请在 My Content 切换到 List 视图。");
+                ((SelectionItemPattern)p).Select();
+            }else{
+                if(tab!="cars"&&tab!="tracks")throw new Exception("不支持的内容标签。");
+                if(s.url==home+tab)return s;
+                var name=tab=="cars"?"My Licensed Cars":"My Licensed Tracks";
+                var item=Unique(s,name,"ControlType.Hyperlink");
+                if(item.value!=home+tab)throw new Exception("未找到官方已授权内容标签。");
+                Invoke(item,deadline);
+            }
+            Thread.Sleep(1300);return Read();
+        }
+        if(op=="licensed_row"){
+            var tab=(string)req["tab"];
+            if(tab!="cars"&&tab!="tracks")throw new Exception("不支持的内容标签。");
+            var s=Read();
+            if(s.url!="https://members-ng.iracing.com/web/racing/licensed-content/"+tab)
+                throw new Exception("已授权列表标签已变化。");
+            var column=Unique(s,tab=="cars"?"Car Name":"Track Name","ControlType.DataItem");
+            if(column.parent<0||s.nodes[column.parent].parent<0)throw new Exception("无法核对授权列表表头。");
+            var header=s.nodes[column.parent];
+            var rows=s.nodes.Where(n=>n.index!=header.index&&n.parent==header.parent&&n.type=="ControlType.DataItem").ToList();
+            var row=(int)req["row"];
+            object pattern;
+            if(row<0||row>=rows.Count||!rows[row].element.TryGetCurrentPattern(ScrollItemPattern.Pattern,out pattern)||DateTime.UtcNow>deadline)
+                throw new Exception("当前授权列表无法滚动读取。");
+            ((ScrollItemPattern)pattern).ScrollIntoView();
+            Thread.Sleep(700);return Read();
         }
         if(op=="search_mazda"){
             var s=Read();if(!s.url.Contains("/official"))throw new Exception("请先进入官方赛事列表。");

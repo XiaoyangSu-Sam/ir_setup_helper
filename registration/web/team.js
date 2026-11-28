@@ -55,12 +55,21 @@
     return {label:'天气待确认'};
   }
 
-  const calendarHeadings=['开赛','赛事 / 赛道','最低驾照','车辆组别','比赛时长','报名窗口','天气'];
+  const calendarHeadings=['开赛','赛事 / 赛道','我的资格','最低驾照','车辆组别','比赛时长','报名窗口','天气'];
   const slotKey=slot=>slot?.startUtc||slot?.localStart||'';
   const raceSlots=entry=>entry?.slotDetails?.length?entry.slotDetails:
     (entry?.slots||[]).map(localStart=>({localStart,startLabel:localStart.replace('T',' ')}));
   const classesText=entry=>(entry.classes||[]).map(x=>x.name).join('、');
   const minimumLicense=entry=>entry.licenseRequirement?.minimum?.replace(/^Class\s+/i,'')||'待核对';
+
+  function eligibilityText(eligibility){
+    if(!eligibility)return {status:'unknown',label:'待核对',detail:''};
+    const items=[['驾照',eligibility.license],['赛车授权',eligibility.car],['赛道授权',eligibility.track]];
+    const missing=items.filter(([,item])=>item.status==='missing').map(([name])=>name);
+    const unknown=items.filter(([,item])=>item.status==='unknown').map(([name])=>name);
+    return {status:eligibility.status,label:missing.length?'缺'+missing.join('、'):eligibility.status==='eligible'?'符合条件':'待核对',
+      detail:unknown.length?'待核对：'+unknown.join('、'):''};
+  }
 
   function chooseCalendarSlot(entry,slot){
     const same=input('series').value===entry.name;
@@ -77,9 +86,18 @@
   function renderCalendar(visible,selected){
     const overview=el('week-calendar'), rail=el('calendar-days'), agenda=el('calendar-agenda');
     const scope=el('calendar-selected-only');
+    const eligible=el('calendar-eligible-only');
     if(!selected)scope.checked=false;
     scope.disabled=!selected;
-    const events=scope.checked&&selected?[selected]:visible;
+    eligible.disabled=!catalog.eligibilityCheckedAt;
+    if(eligible.disabled)eligible.checked=false;
+    const candidates=scope.checked&&selected?[selected]:visible;
+    const events=eligible.checked?candidates.filter(event=>event.eligibility?.status==='eligible'):candidates;
+    const waiting=candidates.filter(event=>event.eligibility?.status==='unknown').length;
+    el('calendar-eligibility-status').textContent=catalog.eligibilityCheckedAt?
+      '已按 iRacing 账号资料核对 · '+fmt(catalog.eligibilityCheckedAt)+'（多伦多）。开放时间见各场。'+(catalog.eligibilityPartial?' 授权列表未读全，部分资格待核对。':'')+
+      (eligible.checked&&waiting?' · 已隐藏 '+waiting+' 个待核对系列。':''):
+      '读取 iRacing 的驾照和授权后可按资格筛选。';
     const days=weekdays.map((label,i)=>{
       const date=new Date(Date.parse(catalog.monday+'T12:00Z')+i*86400000).toISOString().slice(0,10);
       return {date,label,rows:[]};
@@ -118,7 +136,7 @@
     const included=days.filter(day=>!calendarDay||day.date===calendarDay);
     const pending=unscheduled.filter(({entry})=>!calendarDay||(entry.dates?.start<=calendarDay&&entry.dates?.end>=calendarDay));
     if(!included.some(day=>day.rows.length)&&!pending.length){
-      agenda.append(element('p','这个范围暂未读到场次。试试显示整周或扫描这一周。','hint calendar-empty'));
+      agenda.append(element('p',eligible.checked?'当前范围没有已确认符合条件的比赛。取消资格筛选可查看缺项。':'这个范围暂未读到场次。试试显示整周或扫描这一周。','hint calendar-empty'));
       return;
     }
     const table=element('table',undefined,'calendar-table');
@@ -159,6 +177,10 @@
         race.append(element('small',translated||entry.track||'赛道待确认'));
         if(translated)race.append(element('small',entry.track));
         if(!slot&&(entry.dateLabel||entry.dates?.start))race.append(element('small',entry.dateLabel||entry.dates.start));
+        const qualification=eligibilityText(entry.eligibility);
+        const qualificationCell=cell('我的资格');
+        qualificationCell.append(element('strong',qualification.label,'calendar-eligibility-'+qualification.status));
+        if(qualification.detail&&catalog.eligibilityCheckedAt&&qualification.status!=='eligible')qualificationCell.append(element('small',qualification.detail));
         cell('最低驾照').textContent=minimumLicense(entry);
         cell('车辆组别').textContent=classesText(entry)||'待核对';
         cell('比赛时长').textContent=entry.durationLabel||'待核对';
@@ -258,6 +280,10 @@
       if(entry.specialEvent)line('特殊赛事日期',entry.dateLabel);
       const license=entry.licenseRequirement;
       line('参赛驾照',license?[license.minimum,license.maximum].filter(Boolean).join(' 至 '):'待客户端核对');
+      const qualification=eligibilityText(entry.eligibility);
+      line('我的参赛资格',[qualification.label,qualification.detail].filter(Boolean).join(' · '));
+      if(entry.eligibility?.license.current)line('我的驾照',entry.eligibility.license.discipline+' '+entry.eligibility.license.current);
+      if(entry.eligibility?.car.owned.length)line('我已授权的参赛车辆',entry.eligibility.car.owned.join('、'));
       if(license?.source){const a=element('a','查看官方驾照来源');a.href=license.source;a.target='_blank';a.rel='noopener noreferrer';facts.append(a);}
       line('Race duration · 比赛时长',entry.durationLabel||'待核对（未读到可靠的比赛时长）');
       if(entry.scheduleWeek)line('时长依据','官方赛程 '+entry.scheduleWeek+' 周次的 Duration 列；不包含练习和排位');
@@ -308,6 +334,18 @@
   };
   el('endurance-search').oninput=()=>choices(input('series').value,input('localStart').value,input('car').value);
   el('calendar-selected-only').onchange=()=>choices(input('series').value,input('localStart').value,input('car').value);
+  el('calendar-eligible-only').onchange=()=>choices(input('series').value,input('localStart').value,input('car').value);
+  el('calendar-read-eligibility').onclick=async()=>{
+    const control=el('calendar-read-eligibility');
+    const message=el('calendar-eligibility-status');
+    fields.disabled=true;reload.disabled=true;
+    message.textContent='正在读取 iRacing 的驾照、赛车和赛道授权…';
+    try{
+      catalog=await api('/api/team-options/eligibility',{weekend:input('weekend').value});
+      choices(input('series').value,input('localStart').value,input('car').value);
+    }catch(e){message.textContent=e.message;}
+    finally{fields.disabled=false;reload.disabled=false;control.focus();}
+  };
   el('calendar-all-days').onclick=()=>{
     calendarDay='';
     choices(input('series').value,input('localStart').value,input('car').value);
@@ -419,6 +457,18 @@
       item.append(element('p','开始检查报名窗口 · '+fmt(job.registrationOpenUtc)+'（多伦多）','hint'));
       const progress={waiting:'待执行',unconfirmed:'结果待核实',confirmed:'已确认',not_requested:'未选择'};
       item.append(element('p','整队报名 '+progress[job.teamProgress.team]+' · 本人加入 '+progress[job.teamProgress.driver]));
+      const declared=job.teamProgress.team==='confirmed'&&job.teamSteps?.roster==='confirmed';
+      const names=[...new Set([...(job.driverNames||[]),job.ownDriverName].filter(Boolean))];
+      const roster=element('ul',undefined,'team-booking-roster hint');
+      roster.setAttribute('aria-label','队员报名明细');
+      for(const name of names){
+        const marks=[];
+        if(job.driverNames?.includes(name))marks.push(declared?'已随整队申报':'计划申报');
+        if(name===job.ownDriverName)marks.push(job.teamProgress.driver==='confirmed'?'本人加入已确认':'本人加入 '+progress[job.teamProgress.driver]);
+        else if(declared)marks.push('个人加入待核实');
+        roster.append(element('li',name+' · '+marks.join(' · ')));
+      }
+      if(names.length){item.append(element('strong','队员报名明细'));item.append(roster);}
       const canShowSteps=job.teamSteps||['waiting','blocked','submitting','uncertain'].includes(job.status);
       if(canShowSteps&&job.bookingMode!=='join_team'&&job.status!=='reviewed'){
         const steps=element('ol',undefined,'hint');

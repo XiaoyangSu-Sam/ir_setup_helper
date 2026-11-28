@@ -1,5 +1,5 @@
 import http from 'node:http';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,6 +19,7 @@ import {offlineCatalog,scanWeekend,validateChoice,parseTeams} from './endurance.
 import {selectedWeekend,fetchSeasonText,parseSeasonText,scheduleSchema} from './season-catalog.mjs';
 import {parseRoster,parseMember,validateMembers} from './team-directory.mjs';
 import {fetchSpecialEvents,includeSpecialEvents} from './special-events.mjs';
+import {readLicenses,readFullLicensedContent,withCalendarEligibility} from './calendar-eligibility.mjs';
 import {VERSION,helpFor,storageInfo,cleanStorage,writableCheck} from './maintenance.mjs';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -53,7 +54,26 @@ async function withSpecials(c,error=null){
   const calendar=await readJson('special-calendar.json');
   const result=includeSpecialEvents(c,calendar);
   result.specialError=error||(!calendar?'尚未读取官方特殊赛事日历，请点扫描。':null);
-  return result;
+  return withCalendarEligibility(result,await readJson('calendar-eligibility.json'));
+}
+
+async function scanCalendarEligibility(date){
+  guardTeamNavigation();
+  scanningTeams=true;
+  try{
+    const licenses=readLicenses(await requestBridge('navigate',{target:'Profile'},30000));
+    await requestBridge('navigate',{target:'My Content'},30000);
+    const inventories={};
+    for(const tab of ['cars','tracks']){
+      let view=await requestBridge('licensed_tab',{tab},30000);
+      if(!view.nodes.some(n=>n.type==='ControlType.Table'))view=await requestBridge('licensed_tab',{tab:'list'},30000);
+      inventories[tab]=await readFullLicensedContent(requestBridge,view,tab);
+    }
+    const next=join(data,'calendar-eligibility.next');
+    await writeFile(next,JSON.stringify({observedAt:new Date().toISOString(),licenses,...inventories}));
+    await rename(next,join(data,'calendar-eligibility.json'));
+    return catalog(date);
+  }finally{scanningTeams=false;}
 }
 async function rescan(date){
   const w=selectedWeekend(date);
@@ -225,7 +245,7 @@ const server=http.createServer(async(req,res)=>{
     if(path==='/api/team-options'&&req.method==='GET')return send(res,200,{catalog:await catalog(requestUrl.searchParams.get('weekend')||undefined),directory:await readJson('team-directory.json')});
     if(path==='/api/team-options/members'&&req.method==='GET'){const id=requestUrl.searchParams.get('teamId');if(!/^[1-9]\d{0,15}$/.test(id||''))throw Error('Team ID 无效');return send(res,200,await readJson('members-'+id+'.json'));}
     if((scanningTeams||navigating)&&['/api/team-options/members','/api/team-plan/open','/api/team-options/teams','/api/execution/resume'].includes(path))throw Error('客户端正在被其他操作使用，请稍后');
-    if(scanningTeams&&['/api/connect','/api/jobs','/api/rules','/api/team-plan/check','/api/refresh'].includes(path))throw Error('正在读取车队列表，稍后即可继续操作');
+    if(scanningTeams&&['/api/connect','/api/jobs','/api/rules','/api/team-plan/check','/api/team-appointments','/api/refresh'].includes(path))throw Error('正在读取 iRacing 资料，稍后即可继续操作');
     if(navigating&&['/api/connect','/api/jobs','/api/rules','/api/team-plan/check','/api/refresh','/api/team-options/teams','/api/execution/resume'].includes(path))throw Error('正在打开客户端页面，请等待完成后再执行');
     if(path==='/api/team-plan'&&req.method==='GET')return send(res,200,readTeamPlan(store.db));
     if(path==='/api/team-validation'&&req.method==='GET')return send(res,200,JSON.parse(await readFile(join(root,'practice-validation.json'),'utf8').catch(()=>'{"checks":[],"method":"本机尚未记录车队实测"}')));
@@ -246,6 +266,7 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,await catalogScan.promise);
     }
     if(path==='/api/team-options/teams')return send(res,200,await scanTeams());
+    if(path==='/api/team-options/eligibility')return send(res,200,await scanCalendarEligibility(b.weekend));
     if(path==='/api/team-options/members')return send(res,200,await scanMembers(b));
     if(path==='/api/team-plan/open')return send(res,200,await openTeamSeries(b));
     if(path==='/api/team-appointments'){
