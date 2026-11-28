@@ -11,10 +11,10 @@
 <section class="panel"><div class="section-top"><h3>任务记录</h3><span class="hint">保存到本机，关闭网页也会继续</span></div><div id="jobs" class="jobs"><p class="empty">还没有安排，先选一场比赛。</p></div></section>
 <details class="panel" id="team-sheet"><summary>耐力赛 · 选比赛周、车队和车手</summary>
 <p>报名开放前可以先保存资料。保存准备单不会向 iRacing 提交报名。</p>
-<div class="notice">选择报名方式和目标场次。预约会在 iRacing 实际开放报名后执行，并分别显示整队和本人加入的结果。请保持电脑和报名助手运行，iRacing 已登录。</div>
+<div class="notice">点击周历里的场次查看详情并准备报名。预约会在 iRacing 实际开放报名后执行。请保持电脑和报名助手运行，iRacing 已登录。</div>
 <details class="team-validation"><summary>本机车队实测记录</summary><div id="team-validation">展开准备单后读取记录。</div></details>
-<form id="team-form"><fieldset id="team-fields" disabled><label>报名方式<select name="kind"><option value="team_then_join">替整队报名，再以车手身份加入</option><option value="team_registration">替整队报名</option><option value="join_team">加入已报名队伍（车手）</option></select></label>
-<div class="section-top"><strong>1 · 选择比赛周</strong><button type="button" id="weekend-scan" class="ghost">扫描这一周</button></div>
+<form id="team-form"><fieldset id="team-fields" disabled><input type="hidden" name="series"><input type="hidden" name="localStart">
+<div class="section-top"><strong>1 · 在周历选场次</strong><button type="button" id="weekend-scan" class="ghost">扫描这一周</button></div>
 <p id="scan-feedback" class="notice" role="status" aria-live="polite">扫描完成后会在此显示结果。</p><label>选择比赛周<input type="date" name="weekend" required></label><div class="week-nav"><button type="button" id="weekend-prev" class="ghost">上一周</button><button type="button" id="weekend-today" class="ghost">本周</button><button type="button" id="weekend-next" class="ghost">下一周</button></div><label>搜索赛事或赛道<input id="endurance-search" type="search" placeholder="例如 斯帕、纽博格林、IMSA"></label>
 <section id="week-calendar" class="week-calendar" aria-labelledby="calendar-heading" hidden>
   <div class="calendar-title"><div><h3 id="calendar-heading">耐力赛周历</h3><p id="calendar-date"></p></div><label class="calendar-scope"><input id="calendar-selected-only" type="checkbox"> 仅看所选赛事</label></div>
@@ -23,9 +23,14 @@
   <div id="calendar-agenda"></div><p id="calendar-feedback" role="status" class="hint" hidden></p>
   <p class="hint calendar-empty">天气为赛程预报。实际场次天气可在 iRacing 查看 View Forecast。</p>
 </section>
-<details class="hint"><summary>扫描覆盖范围与未定日期赛事</summary><p id="weekend-info"></p><div id="catalog-coverage"></div></details><label>赛事或系列<select name="series"></select></label><div id="race-detail" class="notice"></div>
-<label>比赛场次（多伦多）<select name="localStart"></select></label><div id="race-time-summary" class="notice" aria-live="polite"></div><p class="hint">时间均为多伦多 America/Toronto，24 小时制。EST 为冬令时，EDT 为夏令时；按比赛当天自动切换。普通官方赛“预计报名”按提前 30 分钟推算，以客户端实际开放为准；特殊赛事未确认时不套用。开赛指官方场次开始，正赛绿旗还可能晚于练习/排位。</p><label>参赛车辆<select name="car"></select></label>
-<h3>2 · 选择车队和参赛车手</h3><label>我的车队<select id="team-choice"></select></label><button type="button" id="teams-scan" class="ghost">扫描电脑 iRacing 的车队</button><p id="directory-info" class="hint"></p>
+<section id="selected-race" class="selected-race" aria-labelledby="selected-race-title" hidden>
+  <div class="section-top"><h3 id="selected-race-title" tabindex="-1"></h3><button type="button" id="calendar-return" class="ghost">返回周历</button></div>
+  <div id="race-time-summary" class="notice" aria-live="polite"></div><div id="race-detail" class="notice"></div>
+  <p class="hint">时间均为多伦多 America/Toronto，24 小时制。EST 为冬令时，EDT 为夏令时，按比赛当天自动切换。普通官方赛的预计报名时间按提前 30 分钟推算，以客户端实际开放为准。特殊赛事未确认时不套用。开赛指官方场次开始，正赛绿旗还可能晚于练习和排位。</p>
+</section>
+<details class="hint"><summary>扫描覆盖范围与未定日期赛事</summary><p id="weekend-info"></p><div id="catalog-coverage"></div></details>
+<h3>2 · 准备报名</h3><label>参赛车辆<select name="car"></select></label><label>报名方式<select name="kind"><option value="team_then_join">替整队报名，再以车手身份加入</option><option value="team_registration">替整队报名</option><option value="join_team">加入已报名队伍（车手）</option></select></label>
+<label>我的车队<select id="team-choice"></select></label><button type="button" id="teams-scan" class="ghost">扫描电脑 iRacing 的车队</button><p id="directory-info" class="hint"></p>
 <div class="form-row"><label>队名<input name="teamName" maxlength="160"></label><label>Team ID<input name="teamId" inputmode="numeric" placeholder="不确定可留空"></label></div>
 <button type="button" id="members-scan" class="secondary">扫描所选车队成员</button><p id="members-info" class="hint">选择车队后扫描，直接勾选这场参赛的人。</p><div id="member-list"></div><p class="hint">申报车手就是列出这场实际上车驾驶的人，不是全队成员。是否必须申报由该场规则决定；还不知道就保留“待核对”。</p>
 <div id="team-register-fields"><label>该场次是否要求申报车手<select name="declaration"><option value="unknown">待核对官方场次</option><option value="required">要求申报</option><option value="optional">无需申报</option></select></label><details><summary>手动补充 / 旧名单</summary><label>参赛车手姓名或 Customer ID（每人一行）<textarea name="rosterEntries" rows="3" placeholder="填写车手全名或数字 ID"></textarea></label><p class="hint">可以先按姓名保存草稿。正式申报前需核对数字 ID；推荐使用上方成员勾选。</p></details></div>

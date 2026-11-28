@@ -1,9 +1,11 @@
 import {weekend,nec} from './endurance.mjs';
 import {describeSlot,parseRaceDuration,classDetails,durationLabel,registrationSource} from './race-details.mjs';
 export const scheduleSource='https://members-assets.iracing.com/public/schedulepdf/SeasonSchedule.pdf';
-export const scheduleSchema=3;
+export const scheduleSchema=4;
 const day=86400000,zone='America/Toronto';
 const clean=s=>s.replace(/\s+/g,' ').trim();
+const licenseGrade=String.raw`(?:Rookie|Class\s+[A-D]|Pro/WC)\s+\d\.\d{1,2}`;
+const licenseStart=new RegExp(String.raw`\b${licenseGrade}\s*-->`,'i');
 const local=ms=>{const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(ms).map(x=>[x.type,x.value]));return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;};
 export function selectedWeekend(date){
   if(date===undefined||date==='')return weekend();
@@ -41,6 +43,12 @@ export function readRaceWeather(row){
   if(rainChance>100)return {kind:'unknown'};
   return {kind:'forecast',rainChance,beforeChance:before!==null&&before<=100?before:null,source:scheduleSource};
 }
+export function readLicenseRange(header){
+  const ranges=[...header.matchAll(new RegExp(String.raw`\b(${licenseGrade})\s*-->\s*(${licenseGrade})\b`,'gi'))];
+  if(ranges.length!==1)return null;
+  const [,minimum,maximum]=ranges[0];
+  return {minimum:clean(minimum),maximum:clean(maximum),source:scheduleSource};
+}
 export function parseSeasonText(text,w){
   const headings=[...text.matchAll(/^((?:[^\n]+\b20\d\d Season|20\d\d [A-Za-z])[^\n]*)$/gm)].filter(m=>!/\.\s*\.\s*\./.test(m[1])),series=[],warnings=[];
   for(let i=0;i<headings.length;i++){
@@ -55,7 +63,7 @@ export function parseSeasonText(text,w){
     if(!/Endurance|Team racing/i.test(title+' '+header)&&minutes<120)continue;
     const track=clean(row[3].split(/\(20\d\d-\d\d-\d\d\s/)[0]);
     if(!track||track.length>180)throw Error('官方赛程赛道列无法识别');
-    const carText=clean(header.split(/(?:Rookie|Class [A-D]) \d\.\d\s*-->/)[0].replace(/-\s*\n\s*/g,'-'));
+    const carText=clean(header.split(licenseStart)[0].replace(/-\s*\n\s*/g,'-'));
     const cars=carText.split(/,\s*/).filter(Boolean);
     if(!cars.length||cars.some(x=>x.length>100))throw Error('官方赛程车辆列无法识别');
     const rule=clean(header.match(/Races[^]*?(?=Min entries)/)?.[0]||
@@ -67,7 +75,7 @@ export function parseSeasonText(text,w){
     const maxDrivers=Number(row[3].match(/Max\s+(\d+)\s+driver/)?.[1]||0)||null;
     if(!slots.length)warnings.push(name+'：时间规则尚不能自动解析，请在客户端核对');
     if(!duration)warnings.push(name+'：本周 Race duration 列无法可靠读取，请在客户端核对');
-    series.push({name,season:title,cars,slots,slotDetails,track,minutes,duration,durationLabel:durationLabel(duration),durationSource:scheduleSource,scheduleWeek:row[2],...classDetails(cars,row[3]),registrationSource,teamRace:/Team racing/i.test(header),minDrivers,maxDrivers,declaration:/Declare\s+drivers/i.test(row[3])?'required':'unknown',detail:track,source:scheduleSource,carSource:scheduleSource,raceRule:rule,weather:readRaceWeather(row[3])});
+    series.push({name,season:title,cars,slots,slotDetails,track,minutes,duration,durationLabel:durationLabel(duration),durationSource:scheduleSource,scheduleWeek:row[2],licenseRequirement:readLicenseRange(header),...classDetails(cars,row[3]),registrationSource,teamRace:/Team racing/i.test(header),minDrivers,maxDrivers,declaration:/Declare\s+drivers/i.test(row[3])?'required':'unknown',detail:track,source:scheduleSource,carSource:scheduleSource,raceRule:rule,weather:readRaceWeather(row[3])});
   }
   if(!headings.length)throw Error('官方赛季赛程格式无法识别');
   if(new Set(series.map(x=>x.name)).size!==series.length)throw Error('同系列出现多个赛季，请在客户端核对，未覆盖旧资料');

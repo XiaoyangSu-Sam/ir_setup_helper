@@ -5,7 +5,7 @@ import {join} from 'node:path';
 
 const root = process.env.IR_REGISTRATION_TEST_RUNTIME;
 assert.ok(root, 'Use the staged registration runtime for calendar tests.');
-const {selectedWeekend, parseSeasonText, readRaceWeather} = await import(pathToFileURL(join(root, 'season-catalog.mjs')));
+const {selectedWeekend, parseSeasonText, readRaceWeather, readLicenseRange, scheduleSource} = await import(pathToFileURL(join(root, 'season-catalog.mjs')));
 const {includeSpecialEvents} = await import(pathToFileURL(join(root, 'special-events.mjs')));
 const {validateChoice} = await import(pathToFileURL(join(root, 'endurance.mjs')));
 const week = selectedWeekend('2026-11-27');
@@ -45,6 +45,16 @@ mins`;
   assert.equal(spa.weather.beforeChance, 8);
   assert.equal(spa.weather.kind, 'forecast');
   assert.equal(spa.slotDetails[3].registrationKind, 'confirmed');
+  assert.deepEqual(spa.licenseRequirement, {minimum:'Class D 4.0',maximum:'Pro/WC 4.0',source:scheduleSource});
+});
+
+test('reads only a published license range and preserves bounded or rookie eligibility', () => {
+  assert.deepEqual(readLicenseRange('GT4\n Class C  4.0 -->\n Class B 4.0, Team racing'),
+    {minimum:'Class C 4.0',maximum:'Class B 4.0',source:scheduleSource});
+  assert.deepEqual(readLicenseRange('Rookie 4.0 --> Pro/WC 4.0'),
+    {minimum:'Rookie 4.0',maximum:'Pro/WC 4.0',source:scheduleSource});
+  assert.equal(readLicenseRange('Class C 4.0, team racing'),null);
+  assert.equal(readLicenseRange('Class D 4.0 --> Pro/WC 4.0\nClass C 4.0 --> Pro/WC 4.0'),null);
 });
 
 test('dry, unknown, and possible pre-session rain remain distinct', () => {
