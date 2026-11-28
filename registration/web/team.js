@@ -363,7 +363,7 @@
     teamChoices();
     showMode();
     const past=plan.startUtc&&Date.parse(plan.startUtc)<=Date.now();
-    el('team-next-step').textContent=plan.series?'已保存选择 · '+plan.series+' · '+(plan.localStart||'未选场次')+'（多伦多）。'+(past?'目标场次已过期，请重新选择。':'可直接打开客户端核对。'):'先选择比赛周、系列、场次和车队。';
+    el('team-next-step').textContent=plan.series?'已保存选择 · '+plan.series+' · '+(plan.localStart||'未选场次')+'（多伦多）。'+(past?'目标场次已过期，请重新选择。':'点「预约自动报名」可安排执行，也可打开客户端核对。'):'先选择比赛周、系列、场次和车队。';
     result.textContent=revision===0?'尚未保存准备单。':plan.missing.length
       ?'已保存草稿。待补全 '+plan.missing.join('、')+'。'
       :'准备单已保存，可点「预约自动报名」。';
