@@ -8,7 +8,8 @@ const job={series:'Test Endurance Cup',track:'Spa - Endurance',car:'Cup Car',sta
   teamName:'Example Team',ownDriverName:'Example Driver',driverNames:['Example Driver','Second Driver']};
 
 function raw({form=true,registered=false,joined=false,regTeam=job.teamName,regCar=job.car,
-              plannedNames=job.driverNames,team='Team (2 - 16)',clock='1:58:30 AM',open='Open Now'}={}){
+              plannedNames=job.driverNames,team='Team (2 - 16)',clock='1:58:30 AM',open='Open Now',
+              treeCountdown='1:30',liveCountdown='1:30'}={}){
   const nodes=[];
   function add(type,name='',parent=0,id='',invoke=false,text=''){
     const index=nodes.length;
@@ -22,7 +23,7 @@ function raw({form=true,registered=false,joined=false,regTeam=job.teamName,regCa
   add('Text','You are eligible to race in this series!',doc);
   const card=add('Group','',doc);
   add('Text','2:00 AM',card);
-  add('Text','1:30',card);
+  add('Text',treeCountdown,card);
   add('Text',open,card);
   add('Text','Race Duration',card);
   add('Button','button',card,'id-race',true,'Register');
@@ -59,7 +60,8 @@ function raw({form=true,registered=false,joined=false,regTeam=job.teamName,regCa
       }else add('Button','Register as Driver',row,'register-driver',true);
     }
   }
-  return {ok:true,url,nodes,observedAt:new Date(now).toISOString(),text:clock};
+  const text=`${clock}\nNext Race @ Spa Endurance\n\ufffc\n2:00 AM\n\ufffc\n${liveCountdown} ${open.trim()}\n\ufffc\nRace Duration 4 hrs`;
+  return {ok:true,url,nodes,observedAt:new Date(now).toISOString(),text};
 }
 
 test('generic Register is tied to the exact open team race, never a different date or layout',()=>{
@@ -71,6 +73,14 @@ test('generic Register is tied to the exact open team race, never a different da
     [raw(),{...job,track:'Spa Grand Prix'}],
     [raw(),{...job,startUtc:'2026-11-29T07:00:00.000Z'}],
   ])assert.throws(()=>raceContext(snapshot,plan,now));
+});
+
+test('uses the live race-card countdown when the accessible control name is stale',()=>{
+  const snapshot=raw({form:false,treeCountdown:'27:10',open:' Open Now'});
+  assert.equal(raceContext(snapshot,job,now).register?.id,'id-race');
+  const stale=raw({form:false,liveCountdown:'27:10'});
+  stale.text+='\nAvailable Sessions\n1:30 Open Now';
+  assert.throws(()=>raceContext(stale,job,now),/倒计时/);
 });
 
 test('registered team and registered driver are separate scoped receipts',()=>{

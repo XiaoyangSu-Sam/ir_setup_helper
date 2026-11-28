@@ -54,6 +54,7 @@ export async function runTeamAppointment(store,adapter,job,now=Date.now,paused=(
   }
   if(!ready(job.status)||now()<Date.parse(job.registrationOpenUtc))return;
   if(now()>=start){state('expired','已到目标场次开赛时间，剩余步骤未提交。');return;}
+  if(job.status==='waiting')state('waiting',description+'正在核对 iRacing 报名窗口。');
   let prepared;
   try{prepared=await adapter.prepare(job,phase,()=>!paused()&&ready(store.get(job.id)?.status)&&now()<start);}
   catch(error){

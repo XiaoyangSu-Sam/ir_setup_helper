@@ -290,15 +290,19 @@ public class NativeBridge : Form {
                 throw new Exception("iRacing 当前页面不匹配预约。");
             var anchors=((System.Collections.IEnumerable)req["anchors"]).Cast<object>().Select(x=>TeamAnchor(s,x)).ToList();
             if(anchors.Count<5||!anchors.Any(n=>Regex.IsMatch(n.name??"", @"^Team\s*\(\d+\s*[-–]\s*\d+\)$",RegexOptions.IgnoreCase))||
-               !anchors.Any(n=>n.name=="Open Now")||!anchors.Any(n=>(n.name??"").StartsWith("Next Race @ ")))
+               !anchors.Any(n=>Clean(n.name)=="Open Now")||!anchors.Any(n=>(n.name??"").StartsWith("Next Race @ ")))
                 throw new Exception("尚未核对车队赛、报名窗口及下一场。");
             var next=anchors.First(n=>(n.name??"").StartsWith("Next Race @ "));
-            var race=s.nodes.Skip(next.index+1).TakeWhile(n=>n.name!="Race Duration");
-            var timer=race.Where(n=>n.type=="ControlType.Text").Select(n=>Clean(n.name))
-                .FirstOrDefault(value=>Regex.IsMatch(value,@"^\d{1,2}:\d{2}(:\d{2})?$"));
+            // The accessibility name can keep an old countdown even while the page text updates.
+            var lines=s.text.Split('\n').Select(Clean).ToList();
+            var first=lines.IndexOf(Clean(next.name));
+            var end=lines.FindIndex(first+1,line=>Regex.IsMatch(line,@"^Race Duration\b"));
+            if(first<0||end<0)throw new Exception("无法读取目标场次的实时倒计时。");
+            var timers=lines.Skip(first+1).Take(end-first-1)
+                .Select(line=>Regex.Match(line,@"^(\d{1,2}:\d{2}(:\d{2})?) Open Now$")).Where(match=>match.Success).ToList();
             var now=DateTime.UtcNow;
             double remaining=(start-now).TotalSeconds;
-            if(timer==null||Math.Abs(timer.Split(':').Aggregate(0,(seconds,part)=>seconds*60+int.Parse(part))-remaining)>35)
+            if(timers.Count!=1||Math.Abs(timers[0].Groups[1].Value.Split(':').Aggregate(0,(seconds,part)=>seconds*60+int.Parse(part))-remaining)>35)
                 throw new Exception("执行前倒计时已变化，未匹配目标场次。");
             var clock=Regex.Match(s.text,@"\b\d{1,2}:\d{2}:\d{2}\s[AP]M\b");DateTime clockValue;
             var zone=TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");

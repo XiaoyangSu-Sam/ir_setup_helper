@@ -265,6 +265,13 @@
   function showSlot(){
     const box=el('race-time-summary'),entry=catalog?.series.find(x=>x.name===input('series').value);
     const slot=entry?.slotDetails?.find(x=>x.startUtc===input('localStart').value);
+    const target=el('team-booking-target');
+    target.textContent=slot?'预约目标 · '+entry.name+' · '+slot.startLabel+' 开赛（多伦多）':'先在周历选择要预约的场次。';
+    el('team-schedule').disabled=!slot||Date.parse(slot.startUtc)<=Date.now();
+    const now=Date.now();
+    const earlier=entry?.slotDetails?.find(x=>Date.parse(x.startUtc)<Date.parse(slot?.startUtc)&&
+      now>=Date.parse(x.registrationOpenUtc)&&now<Date.parse(x.startUtc));
+    if(earlier)target.append(element('small',' · 较早的 '+earlier.startLabel+' 场已到预计报名时段。要约这场，请在周历改选。'));
     box.replaceChildren();
     if(!slot){box.textContent='选择场次后，在这里查看多伦多当地的报名和开赛时间。';return;}
     for(const text of [(slot.registrationKind==='confirmed'?'报名开放：':'预计报名开放：')+(slot.registrationLabel||'待确认'),'场次开赛：'+slot.startLabel,'时区：多伦多 America/Toronto；EDT 夏令时 / EST 冬令时']){const p=document.createElement('p');p.textContent=text;box.append(p);}
@@ -440,7 +447,7 @@
       display(plan);
       if(event.submitter===el('team-schedule')){
         const job=await api('/api/team-appointments',{revision:plan.revision,confirmed:true});
-        result.textContent='车队预约 · '+(statuses[job.status]||job.status)+' · '+job.note;
+        result.textContent='车队预约 · '+job.startLabel+' 开赛（多伦多） · '+(statuses[job.status]||job.status)+' · '+job.note;
         await load();
       }
     }

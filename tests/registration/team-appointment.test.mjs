@@ -48,6 +48,25 @@ test('waits for the published window then confirms both phases in order',async()
   assert.deepEqual(f.calls,['prepare:team','submit:team','verify:team','prepare:driver','submit:driver','verify:driver']);
 });
 
+test('checks again when the scheduled window arrives before the client opens registration',async()=>{
+  let checks=0;
+  const f=fixture({prepare:async()=>{
+    if(++checks===1){
+      assert.match(f.job.note,/正在核对/);
+      throw Error('iRacing 报名窗口尚未开放');
+    }
+    return {action:true};
+  }},'team_registration');
+  await runTeamAppointment(f.store,f.adapter,f.job,()=>earlier);
+  assert.equal(checks,0);
+  await runTeamAppointment(f.store,f.adapter,f.job,()=>within);
+  assert.equal(f.job.status,'blocked');
+  assert.deepEqual(f.calls,[]);
+  await runTeamAppointment(f.store,f.adapter,f.job,()=>within+10000);
+  assert.equal(f.job.status,'succeeded');
+  assert.deepEqual(f.calls,['submit:team','verify:team']);
+});
+
 test('an unknown result permits only verification and retains the confirmed team phase',async()=>{
   const f=fixture({submit:async(job,phase)=>{
     assert.equal(f.job.status,'submitting');

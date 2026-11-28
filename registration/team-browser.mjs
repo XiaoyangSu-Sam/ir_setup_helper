@@ -48,6 +48,15 @@ function validateSnapshot(raw,now){
   if(/disconnected|connection lost|failed to connect/i.test(raw.text||''))throw Error('iRacing 客户端连接异常。');
 }
 
+function liveRaceCountdown(text,headline){
+  const rows=String(text||'').split(/\r?\n/).map(clean);
+  const first=rows.indexOf(clean(headline));
+  const end=rows.findIndex((row,index)=>index>first&&/^Race Duration\b/.test(row));
+  if(first<0||end<0)return NaN;
+  const timer=one(rows.slice(first+1,end).map(row=>/^(\d{1,2}:\d{2}(?::\d{2})?) Open Now$/.exec(row)).filter(Boolean));
+  return timer?timer[1].split(':').reduce((total,part)=>total*60+Number(part),0):NaN;
+}
+
 export function raceContext(raw,job,now=Date.now(),requireOpen=true){
   validateSnapshot(raw,now);
   const {nodes}=raw;
@@ -65,12 +74,12 @@ export function raceContext(raw,job,now=Date.now(),requireOpen=true){
   const absolute=localTime(new Intl.DateTimeFormat('en-US',{timeZone:toronto,month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true}),start);
   if(!raceLabel||![localTime(timeFormat,start),absolute].includes(label(raceLabel)))throw Error('客户端下一场开赛时间与准备单不一致。');
   const open=heading(timeRows,'Open Now');
-  const timer=timeRows.find(n=>/^\d{1,2}:\d{2}(?::\d{2})?$/.test(label(n)));
-  const remaining=timer?label(timer).split(':').reduce((total,part)=>total*60+Number(part),0):NaN;
+  const remaining=liveRaceCountdown(raw.text,next.name);
   const clock=clean(raw.text?.match(/\b\d{1,2}:\d{2}:\d{2}\s[AP]M\b/)?.[0]);
   const diff=Math.abs(sec(clock)-sec(localTime(clockFormat,now)));
   const countdownMatches=open&&Math.abs(remaining-(start-now)/1000)<=35&&Math.min(diff,86400-diff)<=35;
-  if(requireOpen&&(!countdownMatches||now>=start))throw Error('报名窗口尚未在客户端开放，或时钟与目标场次不符。');
+  if(requireOpen&&(!open||now>=start))throw Error('报名窗口尚未在客户端开放，或目标场次已开赛。');
+  if(requireOpen&&!countdownMatches)throw Error('iRacing 的实时倒计时或时钟无法核对到目标场次。');
   if(!requireOpen&&!countdownMatches&&label(raceLabel)!==absolute)
     throw Error('客户端未显示足以确认该场次日期的时间。');
   const register=button(nodes.slice(end?.index??0,after?.index??nodes.length),'Register');
