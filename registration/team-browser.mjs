@@ -460,6 +460,7 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
     const scopedRow=context=>registeredTeamRow(wizard(context.nodes),job.teamName);
     const teamExitConfirmed=context=>{
       if(!context.formRoot)return false;
+      if(context.nodes.some(n=>n!==context.formRoot&&(type(n,'Window')||/-modal-dialog$/.test(n.id||''))))return false;
       const matchingAction=teamExitAction&&(teamExitAction.job===job||job.id&&teamExitAction.job.id===job.id)&&
         teamExitAction.windowId===context.formRoot.id&&now()-teamExitAction.at<=120000;
       return teamAbsent(wizard(context.nodes),job.teamName,matchingAction);

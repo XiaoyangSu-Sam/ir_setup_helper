@@ -214,9 +214,16 @@ test('withdraws the opted-in driver first and confirms the removed team from the
   const plan={...job,car:'Porsche 911 Cup (992.2)',roster:['101','202'],ownDriverId:'101',
     declaration:'required',bookingMode:'team_then_join',teamProgress:{team:'confirmed',driver:'confirmed'}};
   const race=()=>({...raw({form:false,clock:'1:55:30 AM',liveCountdown:'4:30'}),observedAt:new Date(actionTime).toISOString()});
-  for(const missingWithdrawReceipt of [false,true]){
+  for(const receiptState of ['loaded','missing','confirmation still open']){
+    const missingWithdrawReceipt=receiptState==='missing';
     const client=currentTeamClient(race,plan,{portalTeam:true,driverTable:true,separateConfirmation:true,tableReceipt:true,missingWithdrawReceipt});
-    const adapter=makeTeamAdapter(client.request,()=>actionTime,async()=>{});
+    const adapter=makeTeamAdapter(async(op,args)=>{
+      const result=await client.request(op,args);
+      if(op==='snapshot'&&receiptState==='confirmation still open'&&client.actions.at(-1)==='withdraw team'){
+        result.nodes.push({index:result.nodes.length,parent:0,type:'ControlType.Group',id:'withdraw-team-modal-modal-dialog'});
+      }
+      return result;
+    },()=>actionTime,async()=>{});
     await adapter.submit(plan,'team',await adapter.prepare(plan,'team',()=>true));
     await adapter.submit(plan,'driver',await adapter.prepare(plan,'driver',()=>true));
     const actionCount=client.actions.length;
@@ -225,7 +232,7 @@ test('withdraws the opted-in driver first and confirms the removed team from the
     assert.equal(client.actions.length,actionCount);
     const progress=[];
     const result=adapter.withdraw(plan,()=>true,step=>progress.push(step));
-    if(missingWithdrawReceipt){
+    if(receiptState!=='loaded'){
       await assert.rejects(()=>result,/尚未确认整队退出/);
       await assert.rejects(()=>adapter.withdraw(plan,()=>true,()=>{},'team'),/尚未确认/);
     }else assert.equal(await result,true);
