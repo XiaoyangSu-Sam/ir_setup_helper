@@ -47,7 +47,7 @@
 .week-calendar button:focus-visible{outline:2px solid #3e7a5f;outline-offset:-2px}
 .selected-race{margin:20px 0 14px;scroll-margin:16px}
 #team-fields .selected-race h3{margin:0}
-#team-fields #calendar-return{margin:0;white-space:nowrap}
+#team-fields #calendar-return{width:auto;flex:none;margin:0;white-space:nowrap}
 @media(max-width:700px){
   .calendar-table,.calendar-table tbody,.calendar-table .calendar-day-row,.calendar-table .calendar-day-row th{display:block}
   .calendar-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
