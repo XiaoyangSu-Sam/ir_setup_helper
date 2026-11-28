@@ -68,6 +68,20 @@ export class Store{
     }catch(error){this.db.exec('ROLLBACK');throw error;}
     return this.get(id);
   }
+  recordTeamWithdrawal(id,state,message){
+    const job=this.get(id);
+    if(!job||job.kind!=='team_appointment'||job.teamProgress.team!=='confirmed')throw Error('未找到已确认的整队报名。');
+    const at=new Date().toISOString(), status=state==='confirmed'?'withdrawn':job.status;
+    const withdrawal={state,message,at,driverWithdrawn:state==='personal_confirmed'||!!job.teamWithdrawal?.driverWithdrawn};
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      this.db.prepare("UPDATE jobs SET payload=json_set(payload,'$.teamWithdrawal',json(?)),status=?,note=?,updated=? WHERE id=?")
+        .run(JSON.stringify(withdrawal),status,state==='confirmed'?message:job.note,at,id);
+      this.event(id,'withdrawal_'+state,message);
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    return this.get(id);
+  }
   event(id,status,note){this.db.prepare('INSERT INTO events(job_id,at,status,note) VALUES(?,?,?,?)').run(id,new Date().toISOString(),status,note);}
   recordInvoke(id,r){if(!Number.isFinite(Date.parse(r?.invokedAt))||!['locked','unlocked','unobserved'].includes(r.invokeState))return;this.db.prepare('INSERT OR IGNORE INTO registration_evidence(job_id,invoke_at,invoke_state) VALUES(?,?,?)').run(id,r.invokedAt,r.invokeState);}
   recordConfirmation(id,raw){this.db.prepare('UPDATE registration_evidence SET confirm_at=?,confirm_state=? WHERE job_id=? AND confirm_at IS NULL').run(raw.observedAt,raw.lockState||'unobserved',id);}
@@ -86,7 +100,7 @@ export class Store{
   events(){return this.db.prepare('SELECT * FROM events ORDER BY id DESC LIMIT 100').all();}
   history({page=0,status='all'}={}){
     if(!Number.isInteger(page)||page<0||page>100000)throw Error('历史页码无效');
-    const states=['all','waiting','blocked','submitting','uncertain','succeeded','checked','cancelled','expired','reviewed'];
+    const states=['all','waiting','blocked','submitting','uncertain','succeeded','checked','cancelled','expired','reviewed','withdrawn'];
     if(!states.includes(status))throw Error('历史状态无效');
     const where=status==='all'?'':' WHERE status=?',args=status==='all'?[]:[status];
     const total=this.db.prepare('SELECT count(*) n FROM jobs'+where).get(...args).n;

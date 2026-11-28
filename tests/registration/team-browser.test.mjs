@@ -85,6 +85,151 @@ test('uses the live race-card countdown when the accessible control name is stal
   assert.throws(()=>raceContext(stale,job,now),/倒计时/);
 });
 
+test('accepts a briefly delayed client clock only when it agrees with the exact open race',()=>{
+  const plan={...job,registrationKind:'confirmed',registrationOpenUtc:'2026-11-28T06:00:00.000Z'};
+  const delayed=raw({form:false,clock:'1:57:15 AM',liveCountdown:'2:45',open:' Open Now'});
+  assert.equal(raceContext(delayed,plan,now).register?.id,'id-race');
+  assert.throws(()=>raceContext(raw({form:false,clock:'1:57:15 AM',liveCountdown:'3:35'}),plan,now),/倒计时/);
+  assert.throws(()=>raceContext(delayed,{...plan,registrationOpenUtc:'2026-11-28T06:58:00.000Z'},now),/倒计时/);
+});
+
+test('open race can be proven by a matching live countdown even without the header clock',()=>{
+  assert.ok(raceContext(raw({form:false,clock:''}),job,now).register);
+  assert.throws(()=>raceContext(raw({form:false,clock:'',liveCountdown:'1:45'}),job,now),/倒计时/);
+  assert.throws(()=>raceContext(raw({form:false,clock:'',open:'Closed'}),job,now),/尚未/);
+});
+
+test('a 24-hour client clock in another time zone identifies the same UTC race',()=>{
+  const snapshot=raw({form:false,clock:'22:58:30'});
+  const start=snapshot.nodes.find(n=>n.name==='2:00 AM');
+  start.name='23:00';
+  assert.ok(raceContext(snapshot,job,now).register);
+  start.name='23:01';
+  assert.throws(()=>raceContext(snapshot,job,now),/时间/);
+});
+
+test('refreshes an idle series page when its clock stopped updating',async()=>{
+  const client=currentTeamClient(()=>raw({form:false}),job);
+  const refreshed=[];
+  let first=true;
+  const adapter=makeTeamAdapter(async(op,args)=>{
+    if(op==='snapshot'&&first){first=false;return raw({form:false,clock:'1:50:00 AM',liveCountdown:'10:00'});}
+    if(['navigate','launch_iracing','search_series','open_series'].includes(op))refreshed.push(op);
+    return client.request(op,args);
+  },()=>now,async()=>{});
+  const action=await adapter.prepare({...job,registrationOpenUtc:'2026-11-28T06:00:00.000Z'},'team',()=>true);
+  assert.deepEqual(refreshed,['launch_iracing','navigate','search_series','open_series']);
+  assert.equal(action.phase,'team');
+  assert.equal(client.actions.at(-1),'verify team');
+});
+
+test('the final Register button can submit only after Verify Team in the bound form',async()=>{
+  const client=currentTeamClient(()=>raw({form:false}),job,{genericRegister:true,portalTeam:true});
+  const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+  const prepared=await adapter.prepare(job,'team',()=>true);
+  assert.equal(prepared.phase,'team');
+  assert.equal(prepared.node.name,'Register');
+  assert.equal(client.actions.at(-1),'verify team');
+  assert.ok(prepared.anchors.some(n=>n.name===job.driverNames[1]));
+});
+
+test('the current driver table selects the exact name and Customer ID before verifying the roster',async()=>{
+  const plan={...job,roster:['101','202']};
+  for(const wrongDriverId of [false,true]){
+    const client=currentTeamClient(()=>raw({form:false}),plan,{driverTable:true,wrongDriverId});
+    const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+    if(wrongDriverId){
+      await assert.rejects(()=>adapter.prepare(plan,'team',()=>true),/Customer ID/);
+      assert.equal(client.actions.at(-1),'open drivers');
+    }else{
+      const prepared=await adapter.prepare(plan,'team',()=>true);
+      assert.deepEqual(client.actions.slice(-3),['open drivers','select driver','verify team']);
+      assert.ok(prepared.anchors.some(n=>n.name==='Second Driver'));
+    }
+  }
+});
+
+test('a separate confirmation dialog must match the verified team and roster before submission',async()=>{
+  const plan={...job,roster:['101','202']};
+  for(const wrongConfirmationTeam of [false,true]){
+    const client=currentTeamClient(()=>raw({form:false}),plan,{portalTeam:true,driverTable:true,separateConfirmation:true,wrongConfirmationTeam});
+    const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+    if(wrongConfirmationTeam){
+      await assert.rejects(()=>adapter.prepare(plan,'team',()=>true),/最终报名确认页/);
+      assert.equal(client.actions.at(-1),'verify team');
+    }else{
+      const prepared=await adapter.prepare(plan,'team',()=>true);
+      assert.equal(prepared.node.id,'123-reg-button');
+      assert.ok(prepared.anchors.some(n=>n.name==='Second Driver'));
+      assert.equal(await adapter.verify(plan,'team'),false);
+      await adapter.submit(plan,'team',prepared);
+      assert.equal(client.actions.at(-1),'register team');
+      assert.equal(await adapter.verify(plan,'team'),true);
+    }
+  }
+});
+
+test('the modern registered-team row confirms team-only after the final Register',async()=>{
+  const plan={...job,car:'Porsche 911 Cup (992.2)',roster:['101','202'],bookingMode:'team_registration'};
+  const client=currentTeamClient(()=>raw({form:false}),plan,{portalTeam:true,driverTable:true,separateConfirmation:true,tableReceipt:true});
+  const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+  let state={...plan,id:'team-only',status:'waiting',registrationOpenUtc:new Date(now-1000).toISOString(),
+    teamProgress:{team:'waiting',driver:'not_requested'}};
+  const store={get:()=>state,updateTeam:(id,status,note,teamProgress,steps)=>{
+    state={...state,status,note,teamProgress:{...teamProgress},teamSteps:{...steps}};
+  }};
+  await runTeamAppointment(store,adapter,state,()=>now);
+  assert.equal(state.status,'succeeded');
+  assert.deepEqual(state.teamProgress,{team:'confirmed',driver:'not_requested'});
+  assert.equal(state.teamSteps.submit,'confirmed');
+  assert.equal(client.actions.at(-1),'register team');
+  const snapshot=await client.request('snapshot');
+  assert.equal(receipt(snapshot,plan,'driver',now),false);
+  assert.equal(receipt(snapshot,{...plan,driverNames:['Different Driver']},'team',now),false);
+  assert.equal(receipt(snapshot,{...plan,teamName:'Different Team'},'team',now),false);
+  const withdraw=snapshot.nodes.find(n=>n.type==='ControlType.Button'&&n.name==='widthdraw-button');
+  withdraw.name='Other Action';
+  assert.equal(receipt(snapshot,plan,'team',now),false);
+});
+
+test('opted-in declared driver uses only their verified registered-team row and waits for their own receipt',async()=>{
+  const plan={...job,car:'Porsche 911 Cup (992.2)',roster:['101','202'],ownDriverId:'101',
+    declaration:'required',bookingMode:'team_then_join',teamProgress:{team:'confirmed',driver:'waiting'}};
+  const client=currentTeamClient(()=>raw({form:false}),plan,{portalTeam:true,driverTable:true,separateConfirmation:true,tableReceipt:true});
+  const adapter=makeTeamAdapter(client.request,()=>now,async()=>{});
+  const team=await adapter.prepare(plan,'team',()=>true);
+  await adapter.submit(plan,'team',team);
+  assert.equal(await adapter.verify(plan,'driver'),false);
+  const driver=await adapter.prepare(plan,'driver',()=>true);
+  assert.equal(driver.phase,'driver');
+  assert.equal(driver.node.id,'123-reg-button');
+  assert.equal(await adapter.verify(plan,'driver'),false);
+  await adapter.submit(plan,'driver',driver);
+  assert.equal(await adapter.verify(plan,'driver'),true);
+  assert.deepEqual(client.actions.slice(-2),['register team','join as driver']);
+});
+
+test('withdraws the opted-in driver first and confirms the removed team from the same form',async()=>{
+  const actionTime=now-180000;
+  const plan={...job,car:'Porsche 911 Cup (992.2)',roster:['101','202'],ownDriverId:'101',
+    declaration:'required',bookingMode:'team_then_join',teamProgress:{team:'confirmed',driver:'confirmed'}};
+  const race=()=>({...raw({form:false,clock:'1:55:30 AM',liveCountdown:'4:30'}),observedAt:new Date(actionTime).toISOString()});
+  for(const missingWithdrawReceipt of [false,true]){
+    const client=currentTeamClient(race,plan,{portalTeam:true,driverTable:true,separateConfirmation:true,tableReceipt:true,missingWithdrawReceipt});
+    const adapter=makeTeamAdapter(client.request,()=>actionTime,async()=>{});
+    await adapter.submit(plan,'team',await adapter.prepare(plan,'team',()=>true));
+    await adapter.submit(plan,'driver',await adapter.prepare(plan,'driver',()=>true));
+    const progress=[];
+    const result=adapter.withdraw(plan,()=>true,step=>progress.push(step));
+    if(missingWithdrawReceipt){
+      await assert.rejects(()=>result,/尚未确认整队退出/);
+      await assert.rejects(()=>adapter.withdraw(plan,()=>true,()=>{},'team'),/尚未确认/);
+    }else assert.equal(await result,true);
+    assert.deepEqual(client.actions.slice(-2),['withdraw driver','withdraw team']);
+    assert.deepEqual(progress,['personal_submitting','personal_confirmed','team_submitting']);
+  }
+});
+
 test('registered team and registered driver are separate scoped receipts',()=>{
   assert.equal(receipt(raw({registered:true}),job,'team',now),true);
   assert.equal(receipt(raw({registered:true}),job,'driver',now),false);

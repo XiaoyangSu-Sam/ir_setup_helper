@@ -3,6 +3,12 @@ const wantsDriver=kind=>kind!=='team_registration';
 const ready=status=>status==='waiting'||status==='blocked';
 const stepNames={car:'选车',team:'选择车队',roster:'申报车手',verify:'Verify Team',submit:'整队报名'};
 
+export function teamCheckFrom(job){
+  const published=Date.parse(job.registrationOpenUtc);
+  const start=Date.parse(job.startUtc);
+  return job.registrationKind==='confirmed'&&published<start?published:start-60*60000;
+}
+
 export function makeTeamAppointment(plan,event,directory,now=Date.now()){
   if(!['team_then_join','team_registration','join_team'].includes(plan.kind)||plan.missing?.length||
      !plan.teamName||!/^\d+$/.test(plan.teamId||''))throw Error('请先保存完整准备单。');
@@ -28,12 +34,10 @@ export function makeTeamAppointment(plan,event,directory,now=Date.now()){
   const ownDriverName=wantsDriver(plan.kind)?member(plan.ownDriverId):'';
   if(plan.kind==='team_then_join'&&plan.declaration==='required'&&!roster.includes(plan.ownDriverId))
     throw Error('请把本人列入申报名单。');
-  const start=Date.parse(slot.startUtc), documented=Date.parse(slot.registrationOpenUtc);
-  const registrationOpenUtc=new Date(Number.isFinite(documented)&&documented<start?documented:start-30*60000).toISOString();
   return {...slot,kind:'team_appointment',mode:'live',bookingMode:plan.kind,revision:plan.revision,
     key:`team:${plan.series}:${plan.startUtc}:${plan.teamId}:${wantsTeam(plan.kind)?'team':'driver'}`,series:plan.series,track:event.track,car:plan.car,
     teamId:plan.teamId,teamName:plan.teamName,roster,driverNames,ownDriverId:plan.ownDriverId,ownDriverName,
-    declaration:plan.declaration,registrationOpenUtc,createdAt:new Date(now).toISOString(),
+    declaration:plan.kind==='join_team'?event.declaration:plan.declaration,createdAt:new Date(now).toISOString(),
     teamProgress:{team:wantsTeam(plan.kind)?'waiting':'not_requested',driver:wantsDriver(plan.kind)?'waiting':'not_requested'}};
 }
 
@@ -63,12 +67,16 @@ export async function runTeamAppointment(store,adapter,job,now=Date.now,paused=(
     try{if(await adapter.verify(job,phase))confirm();}catch{/* Pending evidence stays pending. */}
     return;
   }
-  if(!ready(job.status)||now()<Date.parse(job.registrationOpenUtc))return;
+  if(!ready(job.status)||now()<teamCheckFrom(job))return;
   if(now()>=start){state('expired','已到目标场次开赛时间，剩余步骤未提交。');return;}
   if(job.status==='waiting')state('waiting',description+'正在核对 iRacing 报名窗口。');
   let prepared;
   try{prepared=await adapter.prepare(job,phase,()=>!paused()&&ready(store.get(job.id)?.status)&&now()<start,report);}
   catch(error){
+    if(error.code==='TEAM_WINDOW_WAIT'){
+      if(ready(store.get(job.id)?.status))state('waiting',error.message);
+      return 'window_pending';
+    }
     if(currentStep&&steps[currentStep]==='checking')steps[currentStep]='blocked';
     if(ready(store.get(job.id)?.status))state('blocked',description+'等待核对：'+error.message);
     return;
@@ -89,7 +97,7 @@ export async function runTeamAppointment(store,adapter,job,now=Date.now,paused=(
     }
     if(await adapter.verify(job,phase)){confirm();return;}
     if(phase==='team')steps.submit='unconfirmed';
-    state('uncertain',description+'已提交，正在等待 iRacing 确认。');
+    state('uncertain',description+'已提交，正在等待 iRacing 确认。若客户端出现新的确认步骤，请查看 iRacing；助手只核实结果。');
   }catch(error){
     if(phase==='team')steps.submit='unconfirmed';
     state('uncertain',description+'结果待核实：'+error.message);

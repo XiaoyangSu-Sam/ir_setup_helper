@@ -2,7 +2,7 @@
 
 .task-feedback{border:1px solid #e4d8af;background:#fff9e9;color:#785c20;padding:12px;border-radius:9px;font-size:14px}.task-feedback.success{border-color:#b9d5a7;background:#edf5e3;color:#315c39}
 
-#lock-option{display:flex;align-items:center;gap:6px;margin:12px 0;font-size:13px}#require-lock{width:auto;margin:0;accent-color:#174f42}
+#lock-option,#team-auto-join-option{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px}#require-lock,#team-auto-join{width:auto;margin:0;accent-color:#174f42}
 #team-fields{border:0;padding:0;margin:0}#team-fields textarea{display:block;box-sizing:border-box;width:100%;font:inherit;padding:10px;border:1px solid #d9e1d3;border-radius:7px}
 .team-validation{margin:18px 0;padding:14px;background:#f7f9f3;border-radius:9px}.team-phase{margin:10px 0;padding:14px;border:1px solid #e0e5dc;border-radius:9px}.team-phase p{margin:5px 0 0}.team-phase strong{font-size:13px}
 

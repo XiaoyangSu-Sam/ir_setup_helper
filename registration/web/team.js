@@ -419,7 +419,8 @@
   function showMode(){
     const kind=input('kind').value;
     document.getElementById('team-register-fields').hidden=kind==='join_team';
-    document.getElementById('team-join-fields').hidden=kind==='team_registration';
+    el('team-auto-join-option').hidden=kind==='join_team';
+    el('team-join-fields').hidden=kind==='team_registration'&&!el('team-auto-join').checked;
     if(catalog)renderMembers();
   }
 
@@ -428,7 +429,9 @@
     dirty=false;progress.hidden=true;inspect.disabled=false;el('team-open').disabled=!plan.series||revision===0;
     input('weekend').value=catalog.monday;
     choices(plan.series,plan.startUtc||plan.localStart,plan.car);
-    for(const name of ['kind','teamName','teamId','declaration']){
+    input('kind').value=plan.kind==='join_team'?'join_team':'team_registration';
+    el('team-auto-join').checked=revision>0&&plan.kind==='team_then_join';
+    for(const name of ['teamName','teamId','declaration']){
       input(name).value=plan[name];
     }
     input('ownDriverEntry').value=plan.ownDriverEntry??plan.ownDriverId;
@@ -445,7 +448,7 @@
   let displayedAppointments='';
   window.renderTeamAppointments=jobs=>{
     const box=el('team-appointments');
-    const signature=JSON.stringify(jobs);
+    const signature=JSON.stringify([jobs,Math.floor(Date.now()/10000)]);
     if(signature===displayedAppointments)return;
     displayedAppointments=signature;
     box.replaceChildren();
@@ -454,9 +457,13 @@
       const item=element('div',undefined,'team-phase');
       item.append(element('strong',fmt(job.startUtc)+' · '+job.series+' · '+(statuses[job.status]||job.status)));
       item.append(element('p',job.teamName+' · '+job.car));
-      item.append(element('p','开始检查报名窗口 · '+fmt(job.registrationOpenUtc)+'（多伦多）','hint'));
+      const checkTime=job.registrationKind==='confirmed'?job.registrationOpenUtc:new Date(Date.parse(job.startUtc)-3600000).toISOString();
+      item.append(element('p',(job.registrationKind==='confirmed'?'官方报名开放 · ':'开始检查报名窗口 · ')+fmt(checkTime)+'（多伦多）','hint'));
       const progress={waiting:'待执行',unconfirmed:'结果待核实',confirmed:'已确认',not_requested:'未选择'};
-      item.append(element('p','整队报名 '+progress[job.teamProgress.team]+' · 本人加入 '+progress[job.teamProgress.driver]));
+      const withdrawal=job.teamWithdrawal;
+      const teamState=job.status==='withdrawn'?'已退出':progress[job.teamProgress.team];
+      const driverState=withdrawal?.driverWithdrawn?'已退出':progress[job.teamProgress.driver];
+      item.append(element('p','整队报名 '+teamState+' · 本人加入 '+driverState));
       const declared=job.teamProgress.team==='confirmed'&&job.teamSteps?.roster==='confirmed';
       const names=[...new Set([...(job.driverNames||[]),job.ownDriverName].filter(Boolean))];
       const roster=element('ul',undefined,'team-booking-roster hint');
@@ -464,7 +471,7 @@
       for(const name of names){
         const marks=[];
         if(job.driverNames?.includes(name))marks.push(declared?'已随整队申报':'计划申报');
-        if(name===job.ownDriverName)marks.push(job.teamProgress.driver==='confirmed'?'本人加入已确认':'本人加入 '+progress[job.teamProgress.driver]);
+        if(name===job.ownDriverName)marks.push('本人加入 '+driverState);
         else if(declared)marks.push('个人加入待核实');
         roster.append(element('li',name+' · '+marks.join(' · ')));
       }
@@ -482,7 +489,23 @@
         item.append(steps);
       }
       item.append(element('p',job.note));
-      if(['waiting','blocked','uncertain'].includes(job.status)){
+      if(withdrawal&&job.status!=='withdrawn')item.append(element('p',withdrawal.message,'hint'));
+      const verifyWithdrawal=['personal_submitting','personal_unconfirmed','team_submitting','team_unconfirmed'].includes(withdrawal?.state);
+      const inWithdrawWindow=Date.now()<Date.parse(job.startUtc)-120000;
+      if(job.teamProgress.team==='confirmed'&&job.status!=='withdrawn'&&(inWithdrawWindow||verifyWithdrawal)){
+        const control=element('button',verifyWithdrawal?'核对整队退出结果':'退出整队报名','ghost');
+        control.type='button';
+        control.onclick=()=>{
+          if(!verifyWithdrawal&&!window.confirm('退出 '+fmt(job.startUtc)+' 场 · '+job.teamName+'？若已登记本人，也会先退出本人的车手登记。'))return;
+          void act(async()=>{
+            const result=await api('/api/team-appointments/withdraw',{id:job.id,confirmed:true});
+            if(result.status!=='withdrawn')throw Error(result.teamWithdrawal?.message||'退出结果待核对，请查看 iRacing。');
+          },'整队已退出。');
+        };
+        item.append(control);
+        if(!verifyWithdrawal)item.append(element('p','可申请退出至赛前两分钟，团队管理员权限及队员状态以 iRacing 为准。','hint'));
+      }
+      if(!withdrawal&&['waiting','blocked','uncertain'].includes(job.status)){
         const confirm=job.status==='uncertain';
         const control=element('button',confirm?'我已核实，结束跟踪':'取消预约','ghost');
         control.type='button';
@@ -502,6 +525,7 @@
 
   sheet.addEventListener('toggle',()=>{if(sheet.open&&revision===null&&!reload.disabled)void read();});
   input('kind').addEventListener('change',showMode);
+  el('team-auto-join').addEventListener('change',showMode);
   reload.addEventListener('click',read);
   el('team-open').onclick=async()=>{
     if(dirty||!revision)return;
@@ -525,6 +549,7 @@
     event.preventDefault();
     if(fields.disabled)return;
     const data=Object.fromEntries(new FormData(form));
+    if(data.kind==='team_registration'&&el('team-auto-join').checked)data.kind='team_then_join';
     data.rosterEntries=data.rosterEntries.split(/[\n,，]+/).map(s=>s.trim()).filter(Boolean)
       .flatMap(line=>/^\d+(?:\s+\d+)+$/.test(line)?line.split(/\s+/):[line]);
     const session=catalog.series.find(x=>x.name===data.series)?.slotDetails?.find(x=>x.startUtc===data.localStart);

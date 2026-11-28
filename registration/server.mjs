@@ -285,6 +285,11 @@ const server=http.createServer(async(req,res)=>{
       void scheduler.tick();
       return;
     }
+    if(path==='/api/team-appointments/withdraw'){
+      if(b.confirmed!==true)throw Error('请先确认退出目标场次的整队报名。');
+      if(scanningTeams||navigating)throw Error('iRacing 客户端正在被其他操作使用，请稍候。');
+      return send(res,200,await scheduler.withdrawTeam(b.id));
+    }
     if(path==='/api/team-plan'){validateChoice(b,await catalog(b.weekend||b.localStart?.slice(0,10)));validateMembers(b,/^[1-9]\d{0,15}$/.test(b.teamId||'')?await readJson('members-'+b.teamId+'.json'):null);return send(res,200,saveTeamPlan(store.db,b));}
     if(path==='/api/team-plan/check'){
       const plan=readTeamPlan(store.db);

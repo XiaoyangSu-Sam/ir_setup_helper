@@ -20,7 +20,7 @@ public class NodeInfo {
 public class UiSnapshot {
     public bool ok=true; public string observedAt,url,text,lockState; public List<NodeInfo> nodes;
     public long readDurationMs;
-    public object teamTarget;
+    public object teamTarget,driverTarget;
 }
 public class NativeBridge : Form {
     Label status=new Label{Dock=DockStyle.Fill,Padding=new Padding(20),Text="原生连接已启动。仅执行控制台中明确安排的任务。"};
@@ -33,7 +33,14 @@ public class NativeBridge : Form {
     NotifyIcon tray; bool explicitExit=false;
     readonly object launchLock=new object();
     string teamWizardUrl,teamWizardSeries,teamWizardTrack,teamWizardCar,teamWizardId;
-    DateTime teamWizardStart,teamWizardPendingUntil;
+    string teamWizardConfirmationId,teamWizardVerifiedTeam;
+    string personalTeamUrl,personalTeamName,personalTeamCar,personalTeamControl;
+    DateTime personalTeamStart,personalTeamSubmittedAt;
+    string withdrawalPhase,withdrawalUrl,withdrawalTeam;
+    DateTime withdrawalStart,withdrawalUntil;
+    string[] teamWizardVerifiedDrivers;
+    DateTime teamWizardStart,teamWizardPendingUntil,teamWizardVerifiedUntil;
+    bool teamWizardVerified;
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint processId);
     CheckBox autoIracing=new CheckBox{Text="启动时打开 iRacing",AutoSize=true,Checked=true};
@@ -219,6 +226,9 @@ public class NativeBridge : Form {
         ReadTeamSelection(rows,content);
         var snapshot=new UiSnapshot{observedAt=DateTime.UtcNow.ToString("o"),url=parsed.GetLeftPart(UriPartial.Path),text=content,nodes=rows,lockState=lockState,readDurationMs=watch.ElapsedMilliseconds};
         FindBoundTeamForm(snapshot);
+        if(snapshot.url==personalTeamUrl&&DateTime.UtcNow<personalTeamStart)
+            snapshot.driverTarget=new{startUtc=personalTeamStart.ToString("o"),team=personalTeamName,car=personalTeamCar,
+                controlId=personalTeamControl,submittedAt=personalTeamSubmittedAt.ToString("o")};
         return snapshot;
     }
     void Walk(AutomationElement e,int parent,List<NodeInfo> rows,TextPattern doc,int depth){
@@ -299,19 +309,48 @@ public class NativeBridge : Form {
         var index=lines.IndexOf(prompt);
         if(index>=0&&index==lines.LastIndexOf(prompt)&&index+1<lines.Count)fields[0].value=lines[index+1];
     }
+    NodeInfo TeamConfirmation(UiSnapshot s){
+        var candidates=s.nodes.Where(n=>n.type=="ControlType.Window"&&n.name=="Team Registration"&&
+            (n.id??"").StartsWith("chakra-modal-")&&Descendants(s,n).Any(x=>x.type=="ControlType.Text"&&
+                (x.name??"").StartsWith("Above is the list of selected drivers for the session.",StringComparison.Ordinal))).ToList();
+        return candidates.Count==1?candidates[0]:null;
+    }
+    string[] TeamRoster(UiSnapshot s,NodeInfo table){
+        var rows=Descendants(s,table);
+        return rows.Where(n=>n.parent==table.index&&n.type=="ControlType.DataItem")
+            .Select(row=>rows.FirstOrDefault(n=>n.parent==row.index&&n.type=="ControlType.DataItem"))
+            .Where(cell=>cell!=null&&!String.IsNullOrWhiteSpace(cell.name)&&cell.name!="Display Name")
+            .Select(cell=>Clean(cell.name)).OrderBy(name=>name,StringComparer.Ordinal).ToArray();
+    }
     NodeInfo FindBoundTeamForm(UiSnapshot s){
         if(s.url!=teamWizardUrl||DateTime.UtcNow>=teamWizardStart){teamWizardUrl=null;return null;}
+        var confirmation=TeamConfirmation(s);
+        if(confirmation!=null){
+            if(!teamWizardVerified||teamWizardConfirmationId!=null&&confirmation.id!=teamWizardConfirmationId||
+               teamWizardConfirmationId==null&&DateTime.UtcNow>teamWizardVerifiedUntil)return null;
+            var scope=Descendants(s,confirmation);
+            var team=scope.SingleOrDefault(n=>n.parent==confirmation.index&&n.type=="ControlType.Text"&&n.name=="Selected Team:");
+            var table=scope.SingleOrDefault(n=>n.type=="ControlType.Table"&&Descendants(s,n).Any(x=>x.name=="Display Name"));
+            if(team==null||table==null||!scope.Any(n=>n.parent==team.parent&&n.index==team.index+1&&n.name==teamWizardVerifiedTeam)||
+               !TeamRoster(s,table).SequenceEqual(teamWizardVerifiedDrivers))return null;
+            teamWizardConfirmationId=confirmation.id;
+            s.teamTarget=new{startUtc=teamWizardStart.ToString("o"),series=teamWizardSeries,track=teamWizardTrack,car=teamWizardCar,windowId=confirmation.id,verified=true,confirmation=true};
+            return confirmation;
+        }
         var candidates=s.nodes.Where(n=>n.type=="ControlType.Window"&&n.name=="Go Racing"&&
             (n.id??"").StartsWith("chakra-modal-")&&Descendants(s,n).Any(x=>x.name=="Team Registration")).ToList();
-        if(candidates.Count!=1){if(teamWizardId!=null)teamWizardUrl=null;return null;}
+        if(candidates.Count!=1){
+            if(teamWizardId!=null&&DateTime.UtcNow>withdrawalUntil&&(!teamWizardVerified||DateTime.UtcNow>teamWizardVerifiedUntil))teamWizardUrl=null;
+            return null;
+        }
         var root=candidates[0];
         if(!Descendants(s,root).Any(n=>n.type=="ControlType.Text"&&Clean(n.name)==teamWizardCar))return null;
         if(teamWizardId==null&&DateTime.UtcNow<teamWizardPendingUntil)teamWizardId=root.id;
         if(root.id!=teamWizardId){teamWizardUrl=null;return null;}
-        s.teamTarget=new{startUtc=teamWizardStart.ToString("o"),series=teamWizardSeries,track=teamWizardTrack,car=teamWizardCar,windowId=root.id};
+        s.teamTarget=new{startUtc=teamWizardStart.ToString("o"),series=teamWizardSeries,track=teamWizardTrack,car=teamWizardCar,windowId=root.id,verified=teamWizardVerified};
         return root;
     }
-    NodeInfo RequireOpenTeamRace(UiSnapshot s,List<NodeInfo> anchors,DateTime start){
+    NodeInfo RequireOpenTeamRace(UiSnapshot s,List<NodeInfo> anchors,DateTime start,DateTime? opening){
         if(anchors.Count<5||!anchors.Any(n=>Regex.IsMatch(n.name??"", @"^Team\s*\(\d+\s*[-–]\s*\d+\)$",RegexOptions.IgnoreCase))||
            !anchors.Any(n=>Clean(n.name)=="Open Now")||!anchors.Any(n=>(n.name??"").StartsWith("Next Race @ ")))
             throw new Exception("尚未核对车队赛、报名窗口及下一场。");
@@ -322,18 +361,40 @@ public class NativeBridge : Form {
         var end=lines.FindIndex(first+1,line=>Regex.IsMatch(line,@"^Race Duration\b"));
         if(first<0||end<0)throw new Exception("无法读取目标场次的实时倒计时。");
         var timers=lines.Skip(first+1).Take(end-first-1)
-            .Select(line=>Regex.Match(line,@"^(\d{1,2}:\d{2}(:\d{2})?) Open Now$")).Where(match=>match.Success).ToList();
+            .Select(line=>Regex.Match(line,@"^(?:(\d{1,2}:\d{2}(?::\d{2})?)|(\d+) hrs?(?: (\d+) mins?)?) Open Now$")).Where(match=>match.Success).ToList();
         var now=DateTime.UtcNow;
-        double remaining=(start-now).TotalSeconds;
-        if(timers.Count!=1||Math.Abs(timers[0].Groups[1].Value.Split(':').Aggregate(0,(seconds,part)=>seconds*60+int.Parse(part))-remaining)>35)
+        if(timers.Count!=1||(opening.HasValue&&now<opening.Value))
             throw new Exception("执行前倒计时已变化，未匹配目标场次。");
-        var clock=Regex.Match(s.text,@"\b\d{1,2}:\d{2}:\d{2}\s[AP]M\b");DateTime clockValue;
+        var timer=timers[0];
+        var displayed=timer.Groups[1].Success?timer.Groups[1].Value.Split(':').Aggregate(0,(seconds,part)=>seconds*60+int.Parse(part)):
+            int.Parse(timer.Groups[2].Value)*3600+(timer.Groups[3].Success?int.Parse(timer.Groups[3].Value):0)*60;
+        var clock=Regex.Match(String.Join("\n",lines.Take(first)),@"\b\d{1,2}:\d{2}:\d{2}(?:\s[AP]M)?\b");
+        DateTime clockValue,shownStart;
         var zone=TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
-        if(!clock.Success||!DateTime.TryParseExact(clock.Value,"h:mm:ss tt",CultureInfo.InvariantCulture,DateTimeStyles.None,out clockValue))
-            throw new Exception("无法核对客户端时钟。");
-        var clockDiff=Math.Abs((clockValue.TimeOfDay-TimeZoneInfo.ConvertTimeFromUtc(now,zone).TimeOfDay).TotalSeconds);
-        if(Math.Min(clockDiff,86400-clockDiff)>35)throw new Exception("客户端时钟已停滞或时区不匹配。");
+        var hasClock=DateTime.TryParseExact(clock.Value,new[]{"h:mm:ss tt","H:mm:ss"},CultureInfo.InvariantCulture,DateTimeStyles.None,out clockValue);
+        var lag=hasClock?
+            ((TimeZoneInfo.ConvertTimeFromUtc(now,zone).TimeOfDay-clockValue.TimeOfDay).TotalSeconds+129600)%86400-43200:Double.NaN;
+        var remaining=(start-now).TotalSeconds;
+        var normal=Math.Abs(displayed-remaining)<=35&&Math.Abs(lag)<=35;
+        var liveWithoutHeader=Double.IsNaN(lag)&&Math.Abs(displayed-remaining)<=8;
+        var consistentDelay=lag>=0&&lag<=150&&(!opening.HasValue||now.AddSeconds(-lag)>=opening.Value.AddSeconds(-5))&&Math.Abs(displayed-(remaining+lag))<=12;
+        var time=anchors.SingleOrDefault(n=>n.type=="ControlType.Text"&&n.index>next.index&&Regex.IsMatch(n.name??"", @"(?:^|, )\d{1,2}:\d{2}(?: [AP]M)?$"));
+        var localMatch=hasClock&&time!=null&&DateTime.TryParseExact(time.name.Split(new[]{", "},StringSplitOptions.None).Last().Trim(),
+            new[]{"h:mm tt","H:mm"},CultureInfo.InvariantCulture,DateTimeStyles.None,out shownStart)&&
+            Math.Abs(displayed-remaining)<=8&&Math.Abs(((shownStart.TimeOfDay-clockValue.TimeOfDay).TotalSeconds+86400)%86400-displayed)<=12;
+        if(!normal&&!liveWithoutHeader&&!consistentDelay&&!localMatch)throw new Exception("客户端倒计时与本次报名窗口不一致。");
         return next;
+    }
+    NodeInfo BoundRegisteredTeamRow(UiSnapshot s,List<NodeInfo> anchors,NodeInfo node,string teamName,string car){
+        var row=anchors.SingleOrDefault(n=>n.type=="ControlType.DataItem"&&n.parent>=0&&s.nodes[n.parent].type=="ControlType.Table");
+        if(row==null||row.parent<0)return null;
+        var table=s.nodes[row.parent];
+        if(!anchors.Any(n=>n.name=="Join a Registered Team"&&n.parent==table.parent&&n.index<table.index))return null;
+        var cells=Descendants(s,row);
+        if(!cells.Contains(node)||!anchors.Any(n=>n.parent==row.index&&n.name==teamName)||
+           !anchors.Any(n=>n.parent==row.index&&(n.name==car||car=="Porsche 911 Cup (992.2)"&&n.name=="P9922")))
+            return null;
+        return row;
     }
     void OpenTeamPicker(NodeInfo node,DateTime deadline){
         // The team's custom Edit exposes no Invoke or ExpandCollapse operation in the current UI.
@@ -352,11 +413,17 @@ public class NativeBridge : Form {
         Action after=null;
         try{
             var start=DateTime.Parse((string)req["startUtc"],CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind).ToUniversalTime();
+            DateTime parsedOpen;
+            DateTime? opening=req.ContainsKey("registrationOpenUtc")&&DateTime.TryParse((string)req["registrationOpenUtc"],CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,out parsedOpen)?(DateTime?)parsedOpen.ToUniversalTime():null;
             var phase=(string)req["phase"];
             var series=(string)req["series"];
             var track=(string)req["track"];
             var car=Clean((string)req["car"]);
-            if(!new[]{"prepare","team","driver"}.Contains(phase)||DateTime.UtcNow>=start)
+            var teamName=req.ContainsKey("teamName")?(string)req["teamName"]:"";
+            var withdrawing=new[]{"withdraw_team","withdraw_driver","withdraw_team_confirm","withdraw_driver_confirm"}.Contains(phase);
+            if(!withdrawing&&!new[]{"prepare","team","driver"}.Contains(phase)||
+               DateTime.UtcNow>=start.AddMinutes(withdrawing?-2:0))
                 throw new Exception("目标预约时间已结束。");
             var s=Read();
             if(s.url!=(string)req["url"]||!Regex.IsMatch(s.url,@"^https://members-ng\.iracing\.com/web/racing/official/series-list/\d+/go-racing$")||
@@ -364,16 +431,64 @@ public class NativeBridge : Form {
                 throw new Exception("iRacing 当前页面不匹配预约。");
             var anchors=((System.Collections.IEnumerable)req["anchors"]).Cast<object>().Select(x=>TeamAnchor(s,x)).ToList();
             var node=TeamAnchor(s,req["node"]);
-            var label=Clean(node.text);
-            if(label.Length==0)label=Clean(node.name);
+            var label=Clean(Regex.Replace(node.text??"",@"\p{Co}",""));
+            if(label.Length==0)label=Clean(Regex.Replace(node.name??"",@"\p{Co}",""));
+            if(withdrawing&&phase.EndsWith("_confirm",StringComparison.Ordinal)){
+                var dialog=anchors.SingleOrDefault(n=>n.type=="ControlType.Window"&&(n.id??"").StartsWith("chakra-modal-")&&
+                    Regex.IsMatch(n.name??"", @"^(?:Confirm Withdrawal|Withdraw(?: from (?:the )?Session| Team)?)$",RegexOptions.IgnoreCase));
+                var scope=dialog==null?new List<NodeInfo>():Descendants(s,dialog);
+                if(DateTime.UtcNow>withdrawalUntil||withdrawalPhase+"_confirm"!=phase||withdrawalUrl!=s.url||
+                   withdrawalStart!=start||withdrawalTeam!=teamName||!scope.Contains(node)||node.type!="ControlType.Button"||
+                   !new[]{"Withdraw","Withdraw Team","Confirm Withdrawal"}.Contains(label)||
+                   !anchors.Any(n=>scope.Contains(n)&&n.type=="ControlType.Button"&&n.name=="Cancel")||
+                   !anchors.Any(n=>scope.Contains(n)&&n.type=="ControlType.Text"&&Regex.IsMatch(n.name??"","withdraw",RegexOptions.IgnoreCase)))
+                    throw new Exception("无法核对退出确认窗口，需要在 iRacing 查看。");
+                var confirm=PrepareInvoke(node,deadline);
+                withdrawalPhase=null;
+                confirm.Invoke();
+                return new {invoked=true};
+            }
             var form=FindBoundTeamForm(s);
             if(form!=null){
                 var within=Descendants(s,form);
-                if(teamWizardStart!=start||teamWizardSeries!=series||teamWizardTrack!=track||teamWizardCar!=car||!within.Contains(node)||!anchors.Contains(form)||
-                   anchors.Any(n=>n!=form&&!within.Contains(n)))
+                var portal=anchors.SingleOrDefault(n=>n.type=="ControlType.Menu"&&(n.id??"").StartsWith("menu-list-"));
+                var portalNodes=portal==null?new List<NodeInfo>():Descendants(s,portal);
+                var allowedPortal=phase=="prepare"&&node.type=="ControlType.MenuItem"&&portal!=null&&portalNodes.Contains(node)&&
+                    anchors.Any(n=>within.Contains(n)&&n.id=="menu-button-"+portal.id.Substring("menu-list-".Length));
+                if(teamWizardStart!=start||teamWizardSeries!=series||teamWizardTrack!=track||teamWizardCar!=car||
+                   (!within.Contains(node)&&!allowedPortal)||!anchors.Contains(form)||
+                   anchors.Any(n=>n!=form&&!within.Contains(n)&&!(allowedPortal&&(n==portal||portalNodes.Contains(n)))))
                     throw new Exception("操作与已核对的报名窗口不匹配。");
+                if(form.id==teamWizardConfirmationId&&
+                   (phase!="team"||node.type!="ControlType.Button"||label!="Register"||!Regex.IsMatch(node.id??"", @"^\d+-reg-button$")))
+                    throw new Exception("最终确认页只允许提交已核对的整队报名。");
+                if(phase=="prepare"&&label=="Verify Team"){
+                    var field=anchors.SingleOrDefault(n=>n.type=="ControlType.Edit"&&n.name=="Select a Team to Register");
+                    var table=anchors.SingleOrDefault(n=>n.type=="ControlType.Table");
+                    if(field==null||String.IsNullOrWhiteSpace(field.value)||table==null)
+                        throw new Exception("Verify Team 前无法核对车队和申报名单。");
+                    var drivers=TeamRoster(s,table);
+                    if(drivers.Any(name=>!anchors.Any(n=>n.type=="ControlType.DataItem"&&n.name==name)))
+                        throw new Exception("Verify Team 前申报名单已变化。");
+                    after=()=>{
+                        teamWizardVerified=true;teamWizardVerifiedTeam=field.value;teamWizardVerifiedDrivers=drivers;
+                        teamWizardVerifiedUntil=DateTime.UtcNow.AddSeconds(90);teamWizardConfirmationId=null;
+                    };
+                }
+            }else if(phase=="withdraw_driver"){
+                var next=anchors.SingleOrDefault(n=>n.type=="ControlType.Text"&&(n.name??"").StartsWith("Next Race @ "));
+                var raceEnd=next==null?null:s.nodes.Skip(next.index).FirstOrDefault(n=>Clean(n.name)=="Race Duration");
+                var sessions=next==null?null:s.nodes.Skip(next.index).FirstOrDefault(n=>Clean(n.name)=="Available Sessions");
+                if(personalTeamUrl!=s.url||personalTeamName!=teamName||personalTeamCar!=car||personalTeamStart!=start||
+                   next==null||NormalizeName(next.name.Substring("Next Race @ ".Length))!=NormalizeName(track)||
+                   !anchors.Any(n=>n.type=="ControlType.Text"&&NormalizeName(n.name)==NormalizeName(series))||
+                   label!="Withdraw"||node.type!="ControlType.Button"||raceEnd==null||sessions==null||
+                   node.index<=raceEnd.index||node.index>=sessions.index||
+                   !s.nodes.Any(n=>n.type=="ControlType.Text"&&n.name=="Registered")||
+                   !s.text.Contains("You may join your session."))
+                    throw new Exception("未核对到本人刚登记的目标会话，未执行退出。");
             }else{
-                var next=RequireOpenTeamRace(s,anchors,start);
+                var next=RequireOpenTeamRace(s,anchors,start,opening);
                 var normalizedSeries=NormalizeName(series);
                 if(normalizedSeries.Length==0||!anchors.Any(n=>n.type=="ControlType.Text"&&NormalizeName(n.name)==normalizedSeries)||
                    NormalizeName(next.name.Substring("Next Race @ ".Length))!=NormalizeName(track))
@@ -385,12 +500,38 @@ public class NativeBridge : Form {
                     node.parent>=0&&s.nodes[node.parent].id=="select-car-modal-modal-dialog"&&anchors.Any(n=>Clean(n.name)==car);
                 if(phase=="prepare"&&car.Length>0&&(opensRace||opensAfterCar))after=()=>{
                     teamWizardUrl=s.url;teamWizardSeries=series;teamWizardTrack=track;teamWizardCar=car;teamWizardStart=start;teamWizardId=null;
-                    teamWizardPendingUntil=DateTime.UtcNow.AddSeconds(45);
+                    teamWizardPendingUntil=DateTime.UtcNow.AddSeconds(45);teamWizardVerified=false;teamWizardConfirmationId=null;
                 };
             }
-            if((phase=="team"&&label!="Register Team")||(phase=="driver"&&label!="Register as Driver")||
-               (phase=="prepare"&&(label=="Register Team"||label=="Register as Driver")))
+            var finalRegister=form!=null&&teamWizardVerified&&label=="Register";
+            var rowRegister=form!=null&&phase=="driver"&&label=="Register"&&node.type=="ControlType.Button"&&
+                Regex.IsMatch(node.id??"", @"^\d+-reg-button$")&&BoundRegisteredTeamRow(s,anchors,node,teamName,car)!=null&&
+                anchors.Any(n=>n.type=="ControlType.Button"&&(n.name=="widthdraw-button"||n.name=="Withdraw Team"));
+            if((phase=="team"&&label!="Register Team"&&!finalRegister)||(phase=="driver"&&label!="Register as Driver"&&!rowRegister)||
+               (phase=="prepare"&&(label=="Register Team"||label=="Register as Driver"||form!=null&&label=="Register")))
                 throw new Exception("当前动作与已授权步骤不一致。");
+            if(withdrawing&&form!=null){
+                var row=BoundRegisteredTeamRow(s,anchors,node,teamName,car);
+                var own=req.ContainsKey("ownDriverName")?(string)req["ownDriverName"]:"";
+                if(row==null||node.type!="ControlType.Button"||
+                   phase=="withdraw_team"&&label!="widthdraw-button"&&label!="Withdraw Team"||
+                   phase=="withdraw_driver"&&(!new[]{"Withdraw as Driver","Withdraw from Session","Withdraw"}.Contains(label)||
+                     String.IsNullOrWhiteSpace(own)||!Descendants(s,row).Any(n=>n.name==own)))
+                    throw new Exception("退出控件未匹配目标场次、车辆和车队。");
+            }
+            if(phase=="withdraw_team"&&form==null)throw new Exception("请打开目标场次的已报名车队表。");
+            if(phase=="driver"){
+                if(s.nodes.Any(n=>n.type=="ControlType.Text"&&n.name=="Registered")||s.text.Contains("You may join your session."))
+                    throw new Exception("客户端已有个人登记，请先查看当前会话。");
+                after=()=>{
+                    personalTeamUrl=s.url;personalTeamName=teamName;personalTeamCar=car;personalTeamStart=start;
+                    personalTeamControl=node.id;personalTeamSubmittedAt=DateTime.UtcNow;
+                };
+            }
+            if(withdrawing)after=()=>{
+                withdrawalPhase=phase;withdrawalUrl=s.url;withdrawalTeam=teamName;withdrawalStart=start;
+                withdrawalUntil=DateTime.UtcNow.AddSeconds(15);
+            };
             if(!node.element.Current.IsEnabled||DateTime.UtcNow>deadline||DateTime.UtcNow>=start)
                 throw new Exception("窗口不可操作或已到开赛时间。");
             object pattern;
@@ -422,6 +563,20 @@ public class NativeBridge : Form {
         }
         if(op=="snapshot")return Read();
         if(op=="team_action")return TeamAction(req,deadline);
+        if(op=="close_idle_team_form"){
+            var s=Read();
+            if(s.url!=(string)req["url"]||!Regex.IsMatch(s.url,@"^https://members-ng\.iracing\.com/web/racing/official/series-list/\d+/go-racing$")||
+               s.teamTarget!=null||TeamConfirmation(s)!=null)
+                throw new Exception("当前报名窗口仍与另一项操作关联，请在客户端核对。");
+            var form=s.nodes.SingleOrDefault(n=>n.type=="ControlType.Window"&&n.name=="Go Racing"&&
+                (n.id??"").StartsWith("chakra-modal-")&&Descendants(s,n).Any(child=>child.name=="Team Setup"));
+            var header=form==null?null:Descendants(s,form).SingleOrDefault(n=>n.parent==form.index&&n.id.StartsWith("chakra-modal--header"));
+            var close=header==null?null:Descendants(s,header).SingleOrDefault(n=>n.type=="ControlType.Button"&&n.name=="Close");
+            if(close==null)throw new Exception("请关闭之前的赛事报名窗口，再试一次。");
+            Invoke(close,deadline);
+            Thread.Sleep(500);
+            return Read();
+        }
         if(op=="team_roster"||op=="team_member"||op=="team_close"){
             var teamId=(string)req["teamId"];var teamName=(string)req["teamName"];
             if(!Regex.IsMatch(teamId,@"^[1-9]\d{0,15}$")||String.IsNullOrWhiteSpace(teamName))throw new Exception("请选择有效车队。");

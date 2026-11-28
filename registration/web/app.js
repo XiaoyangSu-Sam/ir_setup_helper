@@ -9,7 +9,7 @@ let current=null,selected=null,busy=false,networkFailed=false,authRejected=false
 let latestJobs=[],savingTask=false,watchedJobId=null;
 let displayedStatusError=null,executionPaused=false;
 try{watchedJobId=localStorage.getItem('iracing-last-job');}catch{}
-const statuses={waiting:'等待执行',blocked:'等待条件满足',submitting:'正在提交',uncertain:'结果待核实',succeeded:'报名已确认',checked:'检查通过 · 未报名',cancelled:'预约已取消',expired:'已错过目标场次',reviewed:'已人工核实并结束跟踪'};
+const statuses={waiting:'等待执行',blocked:'等待条件满足',submitting:'正在提交',uncertain:'结果待核实',succeeded:'报名已确认',withdrawn:'整队已退出',checked:'检查通过 · 未报名',cancelled:'预约已取消',expired:'已错过目标场次',reviewed:'已人工核实并结束跟踪'};
 const fmt=iso=>new Intl.DateTimeFormat('zh-CN',{timeZone:'America/Toronto',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(iso));
 const signupTime=s=>s.estimatedRegistrationOpenUtc||new Date(Date.parse(s.startUtc)-30*60000).toISOString();
 const sessionTimes=s=>'预计报名 '+fmt(signupTime(s))+' → 开赛 '+fmt(s.startUtc)+'（多伦多）';

@@ -1,6 +1,6 @@
 import {assertTarget,SERIES,CAR,ZONE} from './racing.mjs';
 import {Recovery,recoveryReason} from './recovery.mjs';
-import {runTeamAppointment} from './team-appointment.mjs';
+import {runTeamAppointment,teamCheckFrom} from './team-appointment.mjs';
 const localFormatter=new Intl.DateTimeFormat('en-US',{timeZone:ZONE,weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 export function matchesRule(rule,startUtc){
   const p=Object.fromEntries(localFormatter.formatToParts(new Date(startUtc)).map(p=>[p.type,p.value]));
@@ -8,10 +8,39 @@ export function matchesRule(rule,startUtc){
 }
 export function makeJob(snapshot,session,mode,ruleId=null){return {...session,series:SERIES,car:CAR,kind:'individual',season:snapshot.season,track:snapshot.track,mode,ruleId,createdAt:new Date().toISOString()};}
 export class Scheduler{
-  constructor(store,adapter,now=()=>Date.now(),teamAdapter=null){this.store=store;this.adapter=adapter;this.now=now;this.running=false;this.lastError=null;this.teamAdapter=teamAdapter;this.recovery=new Recovery(store,adapter,()=>this.now());}
+  constructor(store,adapter,now=()=>Date.now(),teamAdapter=null){this.store=store;this.adapter=adapter;this.now=now;this.running=false;this.lastError=null;this.teamAdapter=teamAdapter;this.teamWindowProbes=new Map();this.recovery=new Recovery(store,adapter,()=>this.now());}
   get paused(){return this.store.isPaused();}
   pause(){this.store.setPaused(true);}
   resume(){if(this.running)throw Error('仍有操作正在结束，请稍后恢复');this.store.setPaused(false);}
+  async withdrawTeam(id){
+    if(this.running)throw Error('助手正在执行另一项报名操作，请稍后再试。');
+    const job=this.store.get(id);
+    if(!this.teamAdapter||job?.kind!=='team_appointment'||job.teamProgress.team!=='confirmed')
+      throw Error('只有已确认的整队报名可以退赛。');
+    if(job.status==='withdrawn')return job;
+    const stage=job.teamWithdrawal?.state;
+    const verifyStage=['team_submitting','team_unconfirmed'].includes(stage)?'team':
+      ['personal_submitting','personal_unconfirmed'].includes(stage)?'personal':null;
+    if(this.now()>=Date.parse(job.startUtc)-120000&&verifyStage!=='team')
+      throw Error('距开赛不足两分钟或已开赛，请在 iRacing 查看退出选项。');
+    this.running=true;
+    let state=stage;
+    const record=(next,message)=>{
+      state=next;
+      return this.store.recordTeamWithdrawal(id,next,message);
+    };
+    try{
+      if(!verifyStage)record('checking','正在核对目标场次、车队和本人登记状态。');
+      if(!await this.teamAdapter.withdraw(job,()=>true,record,verifyStage))throw Error('iRacing 尚未确认退出。');
+      return record('confirmed','整队已退出，iRacing 已确认。');
+    }catch(error){
+      const pending=['personal_submitting','personal_unconfirmed'].includes(state)?'personal_unconfirmed':
+        ['team_submitting','team_unconfirmed'].includes(state)?'team_unconfirmed':'blocked';
+      return record(pending,error.message);
+    }finally{
+      this.running=false;
+    }
+  }
   async tick(){
     if(this.running||this.paused)return;this.running=true;
     try{
@@ -21,7 +50,7 @@ export class Scheduler{
         if(['waiting','blocked'].includes(job.status)&&Date.parse(job.startUtc)-now<=180000)this.store.set(job.id,'expired','距开赛不足 3 分钟，本场未提交。最后记录：'+job.note);
       }
       let jobs=individual().filter(j=>['waiting','blocked','uncertain'].includes(j.status));
-      const team=this.store.active().filter(j=>j.kind==='team_appointment');
+      const team=this.store.active().filter(j=>j.kind==='team_appointment'&&!j.teamWithdrawal);
       const rules=this.store.rules().filter(r=>r.enabled);
       // An uncertain registration blocks new submissions until explicitly resolved.
       const uncertain=[...jobs,...team].find(j=>j.status==='uncertain');
@@ -35,10 +64,12 @@ export class Scheduler{
         if(confirmed)this.store.set(uncertain.id,'succeeded','已重新读取并确认目标场次报名');
         return;
       }
-      const dueTeam=team.find(j=>['waiting','blocked'].includes(j.status)&&now>=Date.parse(j.registrationOpenUtc));
+      for(const [id,next] of this.teamWindowProbes)if(now>=next)this.teamWindowProbes.delete(id);
+      const dueTeam=team.find(j=>['waiting','blocked'].includes(j.status)&&now>=teamCheckFrom(j)&&!this.teamWindowProbes.has(j.id));
       if(dueTeam&&this.teamAdapter){
-        await runTeamAppointment(this.store,this.teamAdapter,dueTeam,this.now,()=>this.paused);
-        return;
+        const result=await runTeamAppointment(this.store,this.teamAdapter,dueTeam,this.now,()=>this.paused);
+        if(result!=='window_pending')return;
+        this.teamWindowProbes.set(dueTeam.id,this.now()+30000);
       }
       if(!jobs.length&&!rules.length)return;
       if(!rules.length&&!jobs.some(j=>Date.parse(j.startUtc)-now<=31*60000))return;

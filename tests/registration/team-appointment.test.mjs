@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {makeTeamAppointment, runTeamAppointment} from '../../registration/team-appointment.mjs';
+import {makeTeamAppointment, runTeamAppointment,teamCheckFrom} from '../../registration/team-appointment.mjs';
 
 const startUtc='2026-11-28T07:00:00.000Z';
 const registrationOpenUtc='2026-11-28T06:00:00.000Z';
@@ -46,6 +46,16 @@ test('waits for the published window then confirms both phases in order',async()
   assert.equal(f.job.status,'succeeded');
   assert.equal(f.job.teamProgress.driver,'confirmed');
   assert.deepEqual(f.calls,['prepare:team','submit:team','verify:team','prepare:driver','submit:driver','verify:driver']);
+});
+
+test('an unconfirmed opening starts probing one hour early and waits for the client',async()=>{
+  const f=fixture({prepare:async()=>{throw Object.assign(Error('客户端尚未开放'),{code:'TEAM_WINDOW_WAIT'});}});
+  const job={...f.job,registrationKind:'unknown',registrationOpenUtc:null};
+  assert.equal(teamCheckFrom(job),Date.parse(registrationOpenUtc));
+  assert.equal(await runTeamAppointment(f.store,f.adapter,job,()=>earlier),undefined);
+  assert.equal(await runTeamAppointment(f.store,f.adapter,job,()=>within),'window_pending');
+  assert.equal(f.job.status,'waiting');
+  assert.equal(f.job.note,'客户端尚未开放');
 });
 
 test('checks again when the scheduled window arrives before the client opens registration',async()=>{
