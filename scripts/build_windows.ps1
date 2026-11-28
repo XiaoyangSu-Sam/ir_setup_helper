@@ -55,7 +55,8 @@ try {
     if ($RegistrationPackage) {
         $staging = & $Python -X utf8 scripts/stage_registration.py $RegistrationPackage build/windows --overrides registration
         if ($LASTEXITCODE -ne 0 -or !$staging) { throw 'Could not verify and stage the registration assistant.' }
-        & (Join-Path $staging 'runtime/node/node.exe') --test tests/registration/eligibility.test.mjs
+        ./scripts/build_registration_bridge.ps1 -Output (Join-Path $staging 'NativeBridge.exe')
+        & (Join-Path $staging 'runtime/node/node.exe') --test tests/registration/eligibility.test.mjs tests/registration/team-appointment.test.mjs tests/registration/team-browser.test.mjs
         if ($LASTEXITCODE -ne 0) { throw 'Registration tests failed.' }
         $priorTestRuntime = $env:IR_REGISTRATION_TEST_RUNTIME
         try {

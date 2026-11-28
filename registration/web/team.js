@@ -139,7 +139,7 @@
         if(translated)race.append(element('small',entry.track));
         if(!slot&&(entry.dateLabel||entry.dates?.start))race.append(element('small',entry.dateLabel||entry.dates.start));
         const registration=row.insertCell();
-        if(slot?.registrationOpenUtc){
+        if(slot?.registrationOpenUtc&&slot.registrationLabel){
           const when=slot.registrationLabel.slice(0,10)===slot.localStart.slice(0,10)?slot.registrationLabel.slice(11,16):slot.registrationLabel.slice(5,16);
           registration.append(element('strong',when+'–'+slot.localStart.slice(11,16)));
           const now=Date.now();
@@ -363,11 +363,38 @@
     teamChoices();
     showMode();
     const past=plan.startUtc&&Date.parse(plan.startUtc)<=Date.now();
-    el('team-next-step').textContent=plan.series?'已保存选择：'+plan.series+' · '+(plan.localStart||'未选场次')+'（多伦多）。'+(past?'目标场次已过期，请重新选择；不会改报下一场。':'下一步打开电脑客户端核对并报名；尚未预约。'):'先选择比赛周、系列、场次和车队。';
+    el('team-next-step').textContent=plan.series?'已保存选择 · '+plan.series+' · '+(plan.localStart||'未选场次')+'（多伦多）。'+(past?'目标场次已过期，请重新选择。':'可直接打开客户端核对。'):'先选择比赛周、系列、场次和车队。';
     result.textContent=revision===0?'尚未保存准备单。':plan.missing.length
       ?'已保存草稿。待补全 '+plan.missing.join('、')+'。'
-      :'资料已保存，尚未预约、尚未报名。请使用下方“打开所选赛事，继续报名”。';
+      :'准备单已保存，可点「预约自动报名」。';
   }
+
+  let displayedAppointments='';
+  window.renderTeamAppointments=jobs=>{
+    const box=el('team-appointments');
+    const signature=JSON.stringify(jobs);
+    if(signature===displayedAppointments)return;
+    displayedAppointments=signature;
+    box.replaceChildren();
+    if(!jobs.length)box.append(element('p','还没有车队预约。','hint'));
+    for(const job of jobs){
+      const item=element('div',undefined,'team-phase');
+      item.append(element('strong',fmt(job.startUtc)+' · '+job.series+' · '+(statuses[job.status]||job.status)));
+      item.append(element('p',job.teamName+' · '+job.car));
+      item.append(element('p','开始检查报名窗口 · '+fmt(job.registrationOpenUtc)+'（多伦多）','hint'));
+      const progress={waiting:'待执行',unconfirmed:'结果待核实',confirmed:'已确认',not_requested:'未选择'};
+      item.append(element('p','整队报名 '+progress[job.teamProgress.team]+' · 本人加入 '+progress[job.teamProgress.driver]));
+      item.append(element('p',job.note));
+      if(['waiting','blocked','uncertain'].includes(job.status)){
+        const confirm=job.status==='uncertain';
+        const control=element('button',confirm?'我已核实，结束跟踪':'取消预约','ghost');
+        control.type='button';
+        control.onclick=()=>act(()=>api(confirm?'/api/resolve':'/api/cancel',{id:job.id,confirmed:confirm}),confirm?'已结束跟踪。':'已取消剩余预约步骤。');
+        item.append(control);
+      }
+      box.append(item);
+    }
+  };
 
   async function read(){
     reload.disabled=true;fields.disabled=true;inspect.disabled=true;progress.hidden=true;
@@ -408,7 +435,15 @@
     data.revision=revision;
     data.memberSelection=memberSelection;
     fields.disabled=true;reload.disabled=true;inspect.disabled=true;progress.hidden=true;
-    try{display(await api('/api/team-plan',data));}
+    try{
+      const plan=await api('/api/team-plan',data);
+      display(plan);
+      if(event.submitter===el('team-schedule')){
+        const job=await api('/api/team-appointments',{revision:plan.revision,confirmed:true});
+        result.textContent='车队预约 · '+(statuses[job.status]||job.status)+' · '+job.note;
+        await load();
+      }
+    }
     catch(error){result.textContent=error.message;}
     finally{fields.disabled=false;reload.disabled=false;inspect.disabled=dirty;}
   });

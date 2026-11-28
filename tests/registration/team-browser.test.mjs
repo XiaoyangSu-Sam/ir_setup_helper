@@ -1,0 +1,128 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {makeTeamAdapter,raceContext,receipt} from '../../registration/team-browser.mjs';
+
+const startUtc='2026-11-28T07:00:00.000Z',now=Date.parse(startUtc)-90000;
+const url='https://members-ng.iracing.com/web/racing/official/series-list/6777/go-racing';
+const job={series:'Test Endurance Cup',track:'Spa - Endurance',car:'Cup Car',startUtc,teamId:'20',
+  teamName:'Example Team',ownDriverName:'Example Driver',driverNames:['Example Driver','Second Driver']};
+
+function raw({form=true,registered=false,joined=false,regTeam=job.teamName,regCar=job.car,
+              plannedNames=job.driverNames,team='Team (2 - 16)',clock='1:58:30 AM',open='Open Now'}={}){
+  const nodes=[];
+  function add(type,name='',parent=0,id='',invoke=false,text=''){
+    const index=nodes.length;
+    nodes.push({index,parent,type:'ControlType.'+type,name,id,invoke,enabled:true,text,value:'',patterns:[]});
+    return index;
+  }
+  const doc=add('Document','',-1);
+  add('Text',job.series,doc);
+  add('Text',team,doc);
+  add('Text','Next Race @ Spa Endurance',doc);
+  add('Text','You are eligible to race in this series!',doc);
+  const card=add('Group','',doc);
+  add('Text','2:00 AM',card);
+  add('Text','1:30',card);
+  add('Text',open,card);
+  add('Text','Race Duration',card);
+  add('Button','button',card,'id-race',true,'Register');
+  const choice=add('Group','',doc);
+  add('Text','Selected Car',choice);
+  add('Text',job.car,choice);
+  const menu=add('Group','',choice);
+  add('Button','',menu,'menu-button-123',true);
+  add('Button','',add('Group','',menu),'favorite_cars-14',true);
+  add('Text','Available Sessions',doc);
+  if(form){
+    const dialog=add('Pane','',doc,'team-registration-dialog');
+    add('Text','Team Registration',dialog);
+    const setup=add('Group','',dialog);
+    add('Text','Team Setup',setup);
+    add('Button','Selected Team: '+job.teamName,setup,'select-team',true);
+    add('Button','Register Team',setup,'register-team',true);
+    if(plannedNames.length){
+      add('Text',plannedNames.length+' Drivers Selected',setup);
+      const roster=add('Table','',setup);
+      add('Text','Display Name',roster);
+      for(const name of plannedNames)add('Text',name,add('DataItem',name,roster));
+    }
+    add('Button','Add a Driver',setup,'add-driver',true);
+    const section=add('Group','',dialog);
+    add('Text','Registered Teams',section);
+    if(registered){
+      const row=add('Group','',section);
+      add('Text',regTeam,row);
+      add('Text',regCar,row);
+      if(joined){
+        add('Text',job.ownDriverName,row);
+        add('Text','Registered as Driver',row);
+      }else add('Button','Register as Driver',row,'register-driver',true);
+    }
+  }
+  return {ok:true,url,nodes,observedAt:new Date(now).toISOString(),text:clock};
+}
+
+test('generic Register is tied to the exact open team race, never a different date or layout',()=>{
+  assert.equal(raceContext(raw({form:false}),job,now).register?.id,'id-race');
+  for(const [snapshot,plan] of [
+    [raw({team:'Single Driver'}),job],
+    [raw({clock:'5:14:00 PM'}),job],
+    [raw({open:'Closed'}),job],
+    [raw(),{...job,track:'Spa Grand Prix'}],
+    [raw(),{...job,startUtc:'2026-11-29T07:00:00.000Z'}],
+  ])assert.throws(()=>raceContext(snapshot,plan,now));
+});
+
+test('registered team and registered driver are separate scoped receipts',()=>{
+  assert.equal(receipt(raw({registered:true}),job,'team',now),true);
+  assert.equal(receipt(raw({registered:true}),job,'driver',now),false);
+  assert.equal(receipt(raw({registered:true,joined:true}),job,'driver',now),true);
+  assert.equal(receipt(raw({registered:true,joined:true}),{...job,ownDriverName:'Different Driver'},'driver',now),false);
+  assert.equal(receipt(raw({registered:true,regCar:'Different Car'}),job,'team',now),false);
+  assert.equal(receipt(raw({registered:true,regTeam:'Different Team'}),job,'team',now),false);
+});
+
+test('does not borrow the matching car from another registered team',()=>{
+  const snapshot=raw({registered:true,regCar:'Different Car'});
+  const {nodes}=snapshot;
+  const originalRow=nodes.find(n=>n.name===job.teamName).parent;
+  const originalParent=nodes[originalRow].parent;
+  const list=nodes.length;
+  nodes[originalRow].parent=list;
+  nodes.push({index:list,parent:originalParent,type:'ControlType.Group'});
+  nodes.push({index:list+1,parent:list,type:'ControlType.Group'});
+  nodes.push({index:list+2,parent:list+1,type:'ControlType.Text',name:'Different Team'});
+  nodes.push({index:list+3,parent:list+1,type:'ControlType.Text',name:job.car});
+  assert.equal(receipt(snapshot,job,'team',now),false);
+});
+
+test('the submit payload identifies the exact team button and both roster rows',async()=>{
+  const adapter=makeTeamAdapter(async op=>{
+    assert.equal(op,'snapshot');
+    return raw();
+  },()=>now);
+  const prepared=await adapter.prepare(job,'team',()=>true);
+  assert.equal(prepared.node.name,'Register Team');
+  assert.ok(prepared.anchors.some(n=>n.name==='Second Driver'));
+  assert.ok(prepared.anchors.some(n=>n.name==='Selected Team: Example Team'));
+  const ambiguous=makeTeamAdapter(async()=>raw({plannedNames:[...job.driverNames,'Extra Driver']}),()=>now);
+  await assert.rejects(()=>ambiguous.prepare(job,'team',()=>true),/申报码单/);
+  const existing=makeTeamAdapter(async()=>raw({registered:true}),()=>now);
+  await assert.rejects(()=>existing.prepare(job,'team',()=>true),/已申报车手名单/);
+});
+
+test('requires the signed-in profile before preparing a matching driver action',async()=>{
+  const profile=(name)=>({...raw(),url:'https://members-ng.iracing.com/web/racing/profile',
+    nodes:[{index:0,parent:-1,type:'ControlType.Text',name}]});
+  function request(name){
+    return async(op,args)=>{
+      if(op==='navigate'&&args.target==='Profile')return profile(name);
+      return raw({registered:true});
+    };
+  }
+  const adapter=makeTeamAdapter(request(job.ownDriverName),()=>now);
+  const prepared=await adapter.prepare(job,'driver',()=>true);
+  assert.equal(prepared.node.name,'Register as Driver');
+  const other=makeTeamAdapter(request('Other Account'),()=>now);
+  await assert.rejects(()=>other.prepare(job,'driver',()=>true),/本人身份/);
+});

@@ -29,9 +29,11 @@ OPTIONAL = {
     )
 }
 NON_RUNTIME = {"NativeBridge.cs", "启动报名助手.cmd", "新手使用说明.md"}
+PROJECT_MODULES = {"team-appointment.mjs", "team-browser.mjs"}
 PROJECT_OVERRIDES = (
-    "season-catalog.mjs", "server.mjs", "special-events.mjs", "team-progress.mjs",
-    "web/index.html", "web/style.css", "web/team.js",
+    "scheduler.mjs", "season-catalog.mjs", "server.mjs", "special-events.mjs", "store.mjs",
+    "team-appointment.mjs", "team-browser.mjs", "team-progress.mjs",
+    "web/app.js", "web/index.html", "web/style.css", "web/support.js", "web/team.js",
 )
 
 
@@ -57,14 +59,14 @@ def stage(package: Path, build: Path, overrides: Path | None = None) -> Path:
             if relative in files:
                 raise ValueError("Duplicate path in the registration ZIP.")
             files[relative] = entry
-        allowed = REQUIRED | OPTIONAL | NON_RUNTIME | {"manifest.json"}
+        allowed = REQUIRED | OPTIONAL | PROJECT_MODULES | NON_RUNTIME | {"manifest.json"}
         if len(roots) != 1 or not REQUIRED | {"manifest.json"} <= files.keys() or files.keys() - allowed:
             raise ValueError("Use the clean registration assistant share ZIP with its bundled runtimes.")
 
         manifest = {record["path"]: record for record in json.loads(archive.read(files["manifest.json"]))}
         build.mkdir(parents=True, exist_ok=True)
         dest = Path(mkdtemp(prefix="registration-", dir=build)).resolve()
-        for relative in sorted(files.keys() & (REQUIRED | OPTIONAL)):
+        for relative in sorted(files.keys() & (REQUIRED | OPTIONAL | PROJECT_MODULES)):
             data = archive.read(files[relative])
             record = manifest[relative]
             if record["bytes"] != len(data) or record["sha256"].lower() != hashlib.sha256(data).hexdigest():
@@ -92,7 +94,7 @@ def export_runtime(staged: Path, output: Path):
             if not file.is_file():
                 continue
             relative = file.relative_to(staged).as_posix()
-            if relative not in REQUIRED | OPTIONAL:
+            if relative not in REQUIRED | OPTIONAL | PROJECT_MODULES:
                 raise ValueError(f"Unexpected file in the staged runtime: {relative}")
             with file.open("rb") as stream:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()

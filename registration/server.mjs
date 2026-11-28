@@ -13,6 +13,8 @@ import {recoverPage} from './recovery-bridge.mjs';
 import {recoveryHint} from './recovery.mjs';
 import {phoneStatus,enablePhone} from './phone.mjs';
 import {installTeamPlan,readTeamPlan,saveTeamPlan,inspectTeamWindow} from './team-plan.mjs';
+import {makeTeamAppointment} from './team-appointment.mjs';
+import {makeTeamAdapter,openTeamSeriesPage} from './team-browser.mjs';
 import {offlineCatalog,scanWeekend,validateChoice,parseTeams} from './endurance.mjs';
 import {selectedWeekend,fetchSeasonText,parseSeasonText,scheduleSchema} from './season-catalog.mjs';
 import {parseRoster,parseMember,validateMembers} from './team-directory.mjs';
@@ -106,9 +108,7 @@ async function openTeamSeries(b){
   guardTeamNavigation();scanningTeams=true;
   try{
     const title=plan.series.replace('Nürburgring','Nurburgring');
-    await requestBridge('launch_iracing');await requestBridge('navigate',{target:'Official'});
-    await requestBridge('search_series',{series:title});
-    const raw=await requestBridge('open_series',{series:title});
+    const raw=await openTeamSeriesPage(requestBridge,title);
     if(!/\/official\/series-list\/\d+\/go-racing$/.test(raw.url)||!raw.nodes.some(n=>n.name===title))throw Error('目标系列页面尚未确认，请检查客户端');
     const past=plan.startUtc&&Date.parse(plan.startUtc)<=Date.now();
     return {opened:true,message:past?'已打开系列，但准备单中的目标场次已经过期。请重新选择场次；未提交、未预约，也不会改报下一场。':'已打开目标系列。请在电脑核对场次、选择车辆，然后在开放后点 Register，选择车队及车手并确认。此按钮没有提交报名，也没有创建预约。',url:raw.url};
@@ -154,7 +154,7 @@ const adapter={
     if(report.confirmed)store.recordConfirmation(job.id,raw);return report.confirmed;
   }
 };
-const scheduler=new Scheduler(store,adapter);
+const scheduler=new Scheduler(store,adapter,Date.now,makeTeamAdapter(requestBridge));
 let reading=null,navigating=false;
 async function refresh(){
   if(reading)return reading;
@@ -187,7 +187,7 @@ async function diagnostics(){
   }catch(e){checks.push({name:'原生连接',state:'error',detail:e.message,...helpFor(e.message)});}
   try{const phone=await phoneStatus();checks.push({name:'远程手机 / 其他电脑',state:phone.ready?'ok':'manual',detail:phone.note,...(!phone.ready?helpFor('Tailscale'):{}),url:phone.url});}catch(e){checks.push({name:'远程手机 / 其他电脑',state:'manual',detail:e.message,...helpFor(e.message)});}
   checks.push({name:'电脑不休眠、网络稳定',state:'manual',detail:'请在 Windows 电源设置确认任务期间不休眠；保持联网并保持助手运行。锁屏可以，注销或关机会停止助手。'});
-  checks.push({name:'功能范围',state:'manual',detail:'Mazda 支持预约；耐力赛目前是扫描、准备名单及打开客户端，尚未支持自动车队预约。'});
+  checks.push({name:'功能范围',state:'manual',detail:'支持 Mazda 个人赛和耐力赛车队预约。车队提交与本人加入各自核对结果。'});
   return {version:VERSION,at:new Date().toISOString(),checks,storage:await storageInfo(data),issueCodes:store.issues().map(({at,scope,code})=>({at,scope,code}))};
 }
 async function maintenance(){
@@ -248,6 +248,22 @@ const server=http.createServer(async(req,res)=>{
     if(path==='/api/team-options/teams')return send(res,200,await scanTeams());
     if(path==='/api/team-options/members')return send(res,200,await scanMembers(b));
     if(path==='/api/team-plan/open')return send(res,200,await openTeamSeries(b));
+    if(path==='/api/team-appointments'){
+      if(b.confirmed!==true)throw Error('请明确确认创建真实车队报名预约。');
+      const plan=readTeamPlan(store.db);
+      if(plan.revision<=0||b.revision!==plan.revision)throw Error('请先保存或重新读取赛事准备单。');
+      const available=await catalog(plan.weekend);
+      const directory=/^[1-9]\d{0,15}$/.test(plan.teamId)?await readJson('members-'+plan.teamId+'.json'):null;
+      if(readTeamPlan(store.db).revision!==plan.revision)throw Error('准备单已更新，请重新核对。');
+      const teams=await readJson('team-directory.json');
+      if(readTeamPlan(store.db).revision!==plan.revision)throw Error('准备单已更新，请重新核对。');
+      const known=teams?.teams?.filter(t=>t.name===plan.teamName);
+      if(known?.length!==1||known[0].id!==plan.teamId)throw Error('请重新扫描我的车队，核对车队名称和 Team ID。');
+      const job=store.addTeam(makeTeamAppointment(plan,available.series.find(e=>e.name===plan.series),directory));
+      send(res,200,job);
+      void scheduler.tick();
+      return;
+    }
     if(path==='/api/team-plan'){validateChoice(b,await catalog(b.weekend||b.localStart?.slice(0,10)));validateMembers(b,/^[1-9]\d{0,15}$/.test(b.teamId||'')?await readJson('members-'+b.teamId+'.json'):null);return send(res,200,saveTeamPlan(store.db,b));}
     if(path==='/api/team-plan/check'){
       const plan=readTeamPlan(store.db);
