@@ -396,6 +396,30 @@ public class NativeBridge : Form {
             return null;
         return row;
     }
+    bool MatchesWithdrawalConfirmation(UiSnapshot s,List<NodeInfo> anchors,NodeInfo node,string phase,string label){
+        const string personalDialogId="withdraw-modal-modal-dialog";
+        var matches=s.nodes.Where(n=>
+            (phase=="withdraw_driver_confirm"&&n.type=="ControlType.Group"&&n.id==personalDialogId&&n.parent>=0&&
+                s.nodes[n.parent].type=="ControlType.Group"&&s.nodes[n.parent].id=="withdraw-modal")||
+            (n.type=="ControlType.Window"&&(n.id??"").StartsWith("chakra-modal-")&&
+                Regex.IsMatch(n.name??"", @"^(?:Confirm Withdrawal|Withdraw(?: from (?:the )?Session| Team)?)$",RegexOptions.IgnoreCase))).ToList();
+        if(matches.Count!=1||!anchors.Contains(matches[0])||node.type!="ControlType.Button")return false;
+        var dialog=matches[0];
+        var scope=Descendants(s,dialog);
+        if(!scope.Contains(node))return false;
+        var cancels=scope.Where(n=>n.type=="ControlType.Button"&&n.enabled&&(Clean(n.text)=="Cancel"||n.name=="Cancel")).ToList();
+        if(cancels.Count!=1||!anchors.Contains(cancels[0]))return false;
+        if(dialog.id==personalDialogId){
+            var footer=node.parent>=0?s.nodes[node.parent]:null;
+            var controls=scope.Where(n=>n.type=="ControlType.Button"&&n.enabled&&(Clean(n.text)=="Withdraw"||n.name=="Withdraw")).ToList();
+            return label=="Withdraw"&&controls.Count==1&&controls[0]==node&&footer!=null&&footer.type=="ControlType.Group"&&
+                footer.parent==dialog.index&&cancels[0].parent==footer.index&&
+                scope.Count(n=>n.parent==dialog.index&&n.type=="ControlType.Text"&&n.name=="Withdraw")==1&&
+                anchors.Any(n=>n.parent==dialog.index&&n.type=="ControlType.Text"&&n.name=="Are you sure you want to leave this session?");
+        }
+        return new[]{"Withdraw","Withdraw Team","Confirm Withdrawal"}.Contains(label)&&
+            anchors.Any(n=>scope.Contains(n)&&n.type=="ControlType.Text"&&Regex.IsMatch(n.name??"","withdraw",RegexOptions.IgnoreCase));
+    }
     void OpenTeamPicker(NodeInfo node,DateTime deadline){
         // The team's custom Edit exposes no Invoke or ExpandCollapse operation in the current UI.
         node.element.SetFocus();
@@ -434,14 +458,8 @@ public class NativeBridge : Form {
             var label=Clean(Regex.Replace(node.text??"",@"\p{Co}",""));
             if(label.Length==0)label=Clean(Regex.Replace(node.name??"",@"\p{Co}",""));
             if(withdrawing&&phase.EndsWith("_confirm",StringComparison.Ordinal)){
-                var dialog=anchors.SingleOrDefault(n=>n.type=="ControlType.Window"&&(n.id??"").StartsWith("chakra-modal-")&&
-                    Regex.IsMatch(n.name??"", @"^(?:Confirm Withdrawal|Withdraw(?: from (?:the )?Session| Team)?)$",RegexOptions.IgnoreCase));
-                var scope=dialog==null?new List<NodeInfo>():Descendants(s,dialog);
                 if(DateTime.UtcNow>withdrawalUntil||withdrawalPhase+"_confirm"!=phase||withdrawalUrl!=s.url||
-                   withdrawalStart!=start||withdrawalTeam!=teamName||!scope.Contains(node)||node.type!="ControlType.Button"||
-                   !new[]{"Withdraw","Withdraw Team","Confirm Withdrawal"}.Contains(label)||
-                   !anchors.Any(n=>scope.Contains(n)&&n.type=="ControlType.Button"&&n.name=="Cancel")||
-                   !anchors.Any(n=>scope.Contains(n)&&n.type=="ControlType.Text"&&Regex.IsMatch(n.name??"","withdraw",RegexOptions.IgnoreCase)))
+                   withdrawalStart!=start||withdrawalTeam!=teamName||!MatchesWithdrawalConfirmation(s,anchors,node,phase,label))
                     throw new Exception("无法核对退出确认窗口，需要在 iRacing 查看。");
                 var confirm=PrepareInvoke(node,deadline);
                 withdrawalPhase=null;

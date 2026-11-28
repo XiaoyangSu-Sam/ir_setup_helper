@@ -340,19 +340,31 @@ function teamAbsent(form,teamName){
   if(!title||!setup||setup.index<=title.index)return false;
   const section=form.scope.filter(n=>n.index>title.index&&n.index<setup.index);
   const loaded=section.some(n=>type(n,'Table')&&includes(descended(section,n),'Team Name')&&includes(descended(section,n),'Car'))||
-    section.some(n=>type(n,'Text')&&/^(?:There are )?no (?:registered teams|teams (?:are )?registered)(?: for this (?:race|session))?\.?$/i.test(label(n)));
+    section.some(n=>type(n,'Text')&&(
+      /^(?:There are )?no (?:registered teams|teams (?:are )?registered)(?: for this (?:race|session))?\.?$/i.test(label(n))||
+      /^There are no registered teams that you may join of \d+ teams? currently in the session\.?$/i.test(label(n))));
   return loaded&&!section.some(n=>equals(n,teamName)||/^Loading(?:…|\.\.\.)?$/i.test(label(n)));
 }
 
 function withdrawalDialog(nodes,job,phase){
   const isTeam=phase==='withdraw_team';
-  const dialog=one(nodes.filter(n=>type(n,'Window')&&n.id?.startsWith('chakra-modal-')&&
-    /^(?:Confirm Withdrawal|Withdraw(?: from (?:the )?Session| Team)?)$/i.test(label(n))));
+  const personalDialogId='withdraw-modal-modal-dialog';
+  const dialog=one(nodes.filter(n=>(!isTeam&&type(n,'Group')&&n.id===personalDialogId&&
+    nodes.some(parent=>parent.index===n.parent&&type(parent,'Group')&&parent.id==='withdraw-modal'))||
+    (type(n,'Window')&&n.id?.startsWith('chakra-modal-')&&
+      /^(?:Confirm Withdrawal|Withdraw(?: from (?:the )?Session| Team)?)$/i.test(label(n)))));
   if(!dialog)return null;
   const scope=descended(nodes,dialog);
+  const cancel=button(scope,'Cancel');
+  if(dialog.id===personalDialogId){
+    const body=scope.filter(n=>n.parent===dialog.index);
+    const question=heading(body,'Are you sure you want to leave this session?');
+    const confirm=button(scope,'Withdraw');
+    const footer=one(body.filter(n=>type(n,'Group')&&n.index===cancel?.parent&&n.index===confirm?.parent));
+    return heading(body,'Withdraw')&&question&&footer?{dialog,question,cancel,confirm}:null;
+  }
   const question=scope.find(n=>type(n,'Text')&&/withdraw/i.test(label(n))&&
     (isTeam?/\bteam\b/i.test(label(n))||label(n).includes(job.teamName):/\b(?:you|your|driver)\b/i.test(label(n))&&!/whole team|entire team|withdraw (?:the|your) team/i.test(label(n))));
-  const cancel=button(scope,'Cancel');
   const confirm=one(scope.filter(n=>type(n,'Button')&&action(n)&&['Withdraw','Withdraw Team','Confirm Withdrawal'].some(name=>equals(n,name))));
   return question&&cancel&&confirm?{dialog,question,cancel,confirm}:null;
 }
@@ -448,7 +460,8 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
     let raw=await read();
     let context;
     let row;
-    const savedPersonal=job.teamProgress.driver==='confirmed'||job.teamProgress.driver==='unconfirmed';
+    const personalExitRecorded=job.teamWithdrawal?.driverWithdrawn===true;
+    const savedPersonal=!personalExitRecorded&&['confirmed','unconfirmed'].includes(job.teamProgress.driver);
     const showMainRegistration=nativeDriverTarget(raw,job)&&
       raw.text?.includes('You may join your session.');
     if(verifyStage==='team'){
@@ -459,6 +472,8 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
       if(confirmed(raw)&&confirmed(await inspect()))return true;
       throw Error('本次整队退出尚未确认。请查看 iRacing 的报名车队列表。');
     }
+    if(personalExitRecorded&&(raw.text?.includes('You may join your session.')||heading(raw.nodes,'Registered')))
+      throw Error('iRacing 又显示本人已登记，请先核对当前会话。');
     if(showMainRegistration){
       context=raceContext(raw,job,now(),false,true);
       if(verifyStage==='personal')throw Error('iRacing 仍显示本人已登记，请查看当前退出提示。');
@@ -496,12 +511,23 @@ export function makeTeamAdapter(request,now=Date.now,settle=delay){
       if(/\bWithdraw\b|You may join your session\./i.test(raw.text||''))throw flowChanged('当前退出场次');
       raw=await openTeamSeriesPage(request,job.series,canAct);
     }
-    context=flowContext(raw,job,now());
-    context=await openForm(context,job,async(current,node,anchors)=>{
-      const result=await dispatch(current,node,'prepare',anchors);
-      if(!result.invoked)throw Error(result.reason);
-      return flowContext(await inspect(),job,now());
-    });
+    for(let attempt=0;;attempt++){
+      try{
+        context=await openForm(flowContext(raw,job,now()),job,async(current,node,anchors)=>{
+          const result=await dispatch(current,node,'prepare',anchors);
+          if(!result.invoked){
+            const error=Error(result.reason);
+            if(['预约窗口在执行前发生变化。','预约控件位置已变化。'].includes(result.reason))error.code='TEAM_VIEW_SHIFTED';
+            throw error;
+          }
+          return flowContext(await inspect(),job,now());
+        });
+        break;
+      }catch(error){
+        if(error.code!=='TEAM_VIEW_SHIFTED'||attempt>=2||!canAct())throw error;
+        raw=await inspect();
+      }
+    }
     row=scopedRow(context);
     if(!row)throw Error('当前场次未显示可核对的车队报名。请查看 iRacing。');
     if(!context.formRoot||!row.withdraw||!matchesRegisteredCar(row,job.car))

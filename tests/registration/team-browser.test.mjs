@@ -230,6 +230,59 @@ test('withdraws the opted-in driver first and confirms the removed team from the
   }
 });
 
+test('the observed Withdraw dialog confirms the personal exit before opening the team exit',async()=>{
+  const actionTime=now-180000;
+  const plan={...job,car:'Porsche 911 Cup (992.2)',roster:['101','202'],ownDriverId:'101',
+    declaration:'required',bookingMode:'team_then_join',teamProgress:{team:'confirmed',driver:'confirmed'}};
+  const race=()=>({...raw({form:false,clock:'1:55:30 AM',liveCountdown:'4:30'}),observedAt:new Date(actionTime).toISOString()});
+  for(const safePrompt of [true,false]){
+    const personalWithdrawPrompt=safePrompt?'Are you sure you want to leave this session?':'Are you sure you want to leave this team?';
+    const client=currentTeamClient(race,plan,{portalTeam:true,driverTable:true,separateConfirmation:true,tableReceipt:true,personalWithdrawPrompt});
+    let shifted=false;
+    const adapter=makeTeamAdapter((op,args)=>{
+      if(op==='team_action'&&args.phase==='prepare'&&args.node.id==='id-race'&&!shifted&&
+         client.actions.at(-1)==='confirm personal withdrawal'){
+        shifted=true;
+        return {invoked:false,reason:'预约窗口在执行前发生变化。'};
+      }
+      return client.request(op,args);
+    },()=>actionTime,async()=>{});
+    await adapter.submit(plan,'team',await adapter.prepare(plan,'team',()=>true));
+    await adapter.submit(plan,'driver',await adapter.prepare(plan,'driver',()=>true));
+    assert.equal(await adapter.verify(plan,'driver'),true);
+    const result=adapter.withdraw(plan,()=>true,()=>{});
+    if(safePrompt){
+      assert.equal(await result,true);
+      assert.equal(shifted,true);
+      assert.deepEqual(client.actions.slice(-6),['open personal withdrawal confirmation','confirm personal withdrawal',
+        'open race','select car','continue','withdraw team']);
+    }else{
+      await assert.rejects(result,/尚未确认本人已退出/);
+      assert.equal(client.actions.at(-1),'open personal withdrawal confirmation');
+    }
+  }
+});
+
+test('a restarted assistant resumes the team exit after the personal exit was recorded',async()=>{
+  const actionTime=now-180000;
+  const plan={...job,car:'Porsche 911 Cup (992.2)',roster:['101','202'],ownDriverId:'101',
+    declaration:'required',bookingMode:'team_then_join',teamProgress:{team:'confirmed',driver:'confirmed'}};
+  const race=()=>({...raw({form:false,clock:'1:55:30 AM',liveCountdown:'4:30'}),observedAt:new Date(actionTime).toISOString()});
+  const client=currentTeamClient(race,plan,{portalTeam:true,driverTable:true,separateConfirmation:true,tableReceipt:true,
+    personalWithdrawPrompt:'Are you sure you want to leave this session?'});
+  const adapter=makeTeamAdapter(client.request,()=>actionTime,async()=>{});
+  await adapter.submit(plan,'team',await adapter.prepare(plan,'team',()=>true));
+  await adapter.submit(plan,'driver',await adapter.prepare(plan,'driver',()=>true));
+  let allowed=true;
+  await assert.rejects(()=>adapter.withdraw(plan,()=>allowed,phase=>{
+    if(phase==='personal_confirmed')allowed=false;
+  }),/助手已暂停/);
+  const restarted=makeTeamAdapter(client.request,()=>actionTime,async()=>{});
+  assert.equal(await restarted.withdraw({...plan,teamWithdrawal:{state:'blocked',driverWithdrawn:true}},()=>true,()=>{}),true);
+  assert.equal(client.actions.filter(action=>action==='confirm personal withdrawal').length,1);
+  assert.equal(client.actions.at(-1),'withdraw team');
+});
+
 test('registered team and registered driver are separate scoped receipts',()=>{
   assert.equal(receipt(raw({registered:true}),job,'team',now),true);
   assert.equal(receipt(raw({registered:true}),job,'driver',now),false);
